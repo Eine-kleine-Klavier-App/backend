@@ -16,8 +16,12 @@ class GroupRelation[T: ScoreEntity](Relation):
         return self._members
 
     def __post_init__(self) -> None:
+        super().__post_init__()
+        self._check_members()
+
+    def _check_members(self) -> None:
         if not self._members:
             raise ValueError("Group relation must contain at least one member.")
 
-        if len(self._members) != len(set(map(id, self._members))):
+        if len(self._members) != len(set(self._members)):
             raise ValueError("Group relation members must be unique.")

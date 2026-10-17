@@ -8,9 +8,19 @@ from piano_app.domain.shared.abstract import abstract
 @abstract
 @dataclass(slots=True, kw_only=True, eq=False)
 class StartEndRelation[T: ScoreEntity](Relation):
-    start: T
-    end: T
+    _start: T
+    _end: T
 
-    def __post_init__(self) -> None:
-        if self.start is self.end:
+    @property
+    def start(self) -> T:
+        return self._start
+
+    @property
+    def end(self) -> T:
+        return self._end
+
+    def _check_invariants(self) -> None:
+        super()._check_invariants()
+
+        if self._start is self._end:
             raise ValueError("Start and end must be different entities.")

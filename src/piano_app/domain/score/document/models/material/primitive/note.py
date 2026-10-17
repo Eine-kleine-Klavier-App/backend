@@ -15,13 +15,30 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class Note(MusicalItem):
-    """A representation of a musical note, only notation, pitch is derived on demand."""
+    """A representation of a musical note, only notation, pitch is derived on demand.
 
-    accidental: Accidental
-    fingering: Fingering
+    Staff step index: 0 is the first line, 1 is the first gap above it, -1 is the gap
+    below the first line.
+    """
+
+    _staff_step: int
+    _accidental: Accidental
+    _fingering: Fingering = Fingering.NONE
 
     _note_carrier: NoteCarrier
     _relations: list[NoteToNoteRelation] = field(default_factory=list)
+
+    @property
+    def staff_step(self) -> int:
+        return self._staff_step
+
+    @property
+    def accidental(self) -> Accidental:
+        return self._accidental
+
+    @property
+    def fingering(self) -> Fingering:
+        return self._fingering
 
     @property
     def note_carrier(self) -> NoteCarrier:
@@ -43,11 +60,11 @@ class Note(MusicalItem):
         sink: MutationSink = DIRECT_SINK,
     ) -> Note:
         note: Note = cls(
-            staff_step=staff_step,
+            _staff_step=staff_step,
             _staff=staff,
             _note_carrier=note_carrier,
-            accidental=accidental,
-            fingering=fingering,
+            _accidental=accidental,
+            _fingering=fingering,
         )
 
         note.attach(sink=sink)
@@ -67,11 +84,11 @@ class Note(MusicalItem):
     ) -> Note:
         note: Note = cls(
             id=id,
-            staff_step=staff_step,
+            _staff_step=staff_step,
             _staff=staff,
             _note_carrier=note_carrier,
-            accidental=accidental,
-            fingering=fingering,
+            _accidental=accidental,
+            _fingering=fingering,
         )
 
         note.attach(sink=sink)

@@ -11,15 +11,21 @@ if TYPE_CHECKING:
 
 
 @abstract
-@dataclass(slots=True, kw_only=True, eq=False)
+@dataclass(kw_only=True, eq=False)
 class SpanContext(Context):
     """A context that occupies a range — adds ``end`` on top of ``Context.start``."""
 
-    end: TemporalAnchor
+    _end: TemporalAnchor
 
-    def __post_init__(self) -> None:
-        if self.start is self.end:
-            raise ValueError("Start and end must be different anchors.")
+    @property
+    def end(self) -> TemporalAnchor:
+        return self._end
+
+    def _check_invariants(self) -> None:
+        super()._check_invariants()
+
+        if not self.start.precedes(self.end):
+            raise ValueError("Start must precede end.")
 
     def attach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
         super().attach(sink=sink)

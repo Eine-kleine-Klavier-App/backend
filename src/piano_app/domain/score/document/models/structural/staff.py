@@ -6,22 +6,21 @@ from piano_app.domain.score.document.models.base import ScoreEntity
 from piano_app.domain.score.document.models.mutation_sink import DIRECT_SINK, MutationSink
 
 if TYPE_CHECKING:
-    from piano_app.domain.score.document.models.context.point.staff import StaffPointContext
-    from piano_app.domain.score.document.models.context.span.staff import StaffSpanContext
+    from piano_app.domain.score.document.models.context.scope.staff import StaffScoped
     from piano_app.domain.score.document.models.material.primitive import MusicalItem
 
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class Staff(ScoreEntity):
     _musical_items: list[MusicalItem] = field(default_factory=list)
-    _contexts: list[StaffPointContext | StaffSpanContext] = field(default_factory=list)
+    _contexts: list[StaffScoped] = field(default_factory=list)
 
     @property
     def musical_items(self) -> Sequence[MusicalItem]:
         return self._musical_items
 
     @property
-    def contexts(self) -> Sequence[StaffPointContext | StaffSpanContext]:
+    def contexts(self) -> Sequence[StaffScoped]:
         return self._contexts
 
     def add_musical_item(
@@ -55,7 +54,7 @@ class Staff(ScoreEntity):
     def add_context(
         self,
         *,
-        context: StaffPointContext | StaffSpanContext,
+        context: StaffScoped,
         sink: MutationSink = DIRECT_SINK,
     ) -> None:
         if context.staff is not self:
@@ -64,12 +63,15 @@ class Staff(ScoreEntity):
         if context in self._contexts:
             return
 
-        sink.list_append(self._contexts, context)
+        # ordered insertion
+        index: int = sum(1 for existing in self._contexts if existing.precedes(context))
+
+        sink.list_insert(self._contexts, index, context)
 
     def remove_context(
         self,
         *,
-        context: StaffPointContext | StaffSpanContext,
+        context: StaffScoped,
         sink: MutationSink = DIRECT_SINK,
     ) -> None:
         if context.staff is not self:

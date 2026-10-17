@@ -14,8 +14,6 @@ if TYPE_CHECKING:
 @abstract
 @dataclass(slots=True, kw_only=True, eq=False)
 class NoteCarrierGroupRelation(GroupRelation["NoteCarrier"]):
-    _members: list[NoteCarrier]
-
     def attach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
         for note_carrier in self._members:
             note_carrier.add_note_carrier_group_relation(relation=self, sink=sink)
@@ -58,10 +56,14 @@ class NoteCarrierGroupRelation(GroupRelation["NoteCarrier"]):
 # the relation semantically connects notes, not their carriers.
 @dataclass(slots=True, kw_only=True, eq=False)
 class Arpeggio(NoteCarrierGroupRelation):
-    arpeggio_type: ArpeggioType = ArpeggioType.ARPEGGIATO
+    _arpeggio_type: ArpeggioType = ArpeggioType.ARPEGGIATO
 
-    def __post_init__(self) -> None:
-        super().__post_init__()
+    @property
+    def arpeggio_type(self) -> ArpeggioType:
+        return self._arpeggio_type
+
+    def _check_members(self) -> None:
+        super()._check_members()
 
         note_count: int = sum(len(carrier.notes) for carrier in self._members)
         if note_count < 2:
@@ -80,8 +82,9 @@ class Arpeggio(NoteCarrierGroupRelation):
     ) -> Arpeggio:
         arpeggio: Arpeggio = cls(
             _members=list(note_carriers),
-            arpeggio_type=arpeggio_type,
+            _arpeggio_type=arpeggio_type,
         )
+
         arpeggio.attach(sink=sink)
         return arpeggio
 

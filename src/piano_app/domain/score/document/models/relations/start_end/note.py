@@ -14,9 +14,6 @@ if TYPE_CHECKING:
 @abstract
 @dataclass(slots=True, kw_only=True, eq=False)
 class NoteToNoteRelation(StartEndRelation["Note"]):
-    start: Note
-    end: Note
-
     def attach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
         self.start.add_relation(relation=self, sink=sink)
         self.end.add_relation(relation=self, sink=sink)
@@ -28,50 +25,6 @@ class NoteToNoteRelation(StartEndRelation["Note"]):
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class Tie(NoteToNoteRelation):
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        self._validate_available_notes()
-
-        # TODO check notes pitch
-
-    @classmethod
-    def create(
-        cls,
-        *,
-        start_note: Note,
-        end_note: Note,
-        sink: MutationSink = DIRECT_SINK,
-    ) -> Tie:
-        relation: Tie = cls(
-            start=start_note,
-            end=end_note,
-        )
-
-        relation.attach(sink=sink)
-        return relation
-
-    @classmethod
-    def reconstruct(
-        cls,
-        *,
-        id: str,
-        start_note: Note,
-        end_note: Note,
-        sink: MutationSink = DIRECT_SINK,
-    ) -> Tie:
-        relation: Tie = cls(
-            id=id,
-            start=start_note,
-            end=end_note,
-        )
-
-        relation.attach(sink=sink)
-        return relation
-
-    def attach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
-        self._validate_available_notes()
-        super().attach(sink=sink)
-
     def _validate_available_notes(self) -> None:
         if any(
             isinstance(relation, Tie)
@@ -87,10 +40,47 @@ class Tie(NoteToNoteRelation):
         ):
             raise ValueError("Note already ends another tie.")
 
+    @classmethod
+    def create(
+        cls,
+        *,
+        start_note: Note,
+        end_note: Note,
+        sink: MutationSink = DIRECT_SINK,
+    ) -> Tie:
+        relation: Tie = cls(_start=start_note, _end=end_note)
+        relation._validate_available_notes()
+
+        relation.attach(sink=sink)
+        return relation
+
+    @classmethod
+    def reconstruct(
+        cls,
+        *,
+        id: str,
+        start_note: Note,
+        end_note: Note,
+        sink: MutationSink = DIRECT_SINK,
+    ) -> Tie:
+        relation: Tie = cls(id=id, _start=start_note, _end=end_note)
+        relation._validate_available_notes()
+
+        relation.attach(sink=sink)
+        return relation
+
+    def attach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
+        self._validate_available_notes()
+        super().attach(sink=sink)
+
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class Glissando(NoteToNoteRelation):
-    glissando_type: GlissandoType
+    _glissando_type: GlissandoType
+
+    @property
+    def glissando_type(self) -> GlissandoType:
+        return self._glissando_type
 
     @classmethod
     def create(
@@ -102,15 +92,10 @@ class Glissando(NoteToNoteRelation):
         sink: MutationSink = DIRECT_SINK,
     ) -> Glissando:
         relation: Glissando = cls(
-            start=start_note,
-            end=end_note,
-            glissando_type=glissando_type,
+            _start=start_note,
+            _end=end_note,
+            _glissando_type=glissando_type,
         )
 
         relation.attach(sink=sink)
         return relation
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
-
-        # TODO check different pitch

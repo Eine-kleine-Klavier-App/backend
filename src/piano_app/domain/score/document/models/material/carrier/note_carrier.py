@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from piano_app.domain.score.document.models.mutation_sink import DIRECT_SINK, MutationSink
-from piano_app.domain.score.document.models.notation import Articulation
+from piano_app.domain.score.document.models.notation import Articulation, StemOverride
 
 from .base import Carrier
 
@@ -16,10 +16,22 @@ if TYPE_CHECKING:
 # TODO validate note addition by absolute pitch. Pitch may be a key for dict
 @dataclass(slots=True, kw_only=True, eq=False)
 class NoteCarrier(Carrier):
-    articulation: Articulation = Articulation.NONE
+    _articulation: Articulation = Articulation.NONE
+    # how the user wants the stem drawn; None draws it automatically. A drawing snapshot,
+    # read by nothing in the logic — to be split out of the model with the rest of the
+    # presentation
+    _stem: StemOverride | None = None
 
     _notes: list[Note] = field(default_factory=list)
     _note_carrier_group_relations: list[NoteCarrierGroupRelation] = field(default_factory=list)
+
+    @property
+    def articulation(self) -> Articulation:
+        return self._articulation
+
+    @property
+    def stem(self) -> StemOverride | None:
+        return self._stem
 
     @property
     def notes(self) -> Sequence[Note]:
@@ -37,10 +49,7 @@ class NoteCarrier(Carrier):
         articulation: Articulation = Articulation.NONE,
         sink: MutationSink = DIRECT_SINK,
     ) -> NoteCarrier:
-        carrier: NoteCarrier = cls(
-            _owner=owner,
-            articulation=articulation,
-        )
+        carrier: NoteCarrier = cls(_owner=owner, _articulation=articulation)
 
         carrier.attach(sink=sink)
         return carrier
@@ -52,16 +61,16 @@ class NoteCarrier(Carrier):
         id: str,
         owner: CarrierOwner,
         articulation: Articulation = Articulation.NONE,
+        stem: StemOverride | None = None,
         sink: MutationSink = DIRECT_SINK,
     ) -> NoteCarrier:
-        carrier: NoteCarrier = cls(
-            id=id,
-            _owner=owner,
-            articulation=articulation,
-        )
+        carrier: NoteCarrier = cls(id=id, _owner=owner, _articulation=articulation, _stem=stem)
 
         carrier.attach(sink=sink)
         return carrier
+
+    def set_stem(self, *, stem: StemOverride | None, sink: MutationSink = DIRECT_SINK) -> None:
+        sink.set_field(self, "_stem", stem)
 
     def detach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
         if any(
