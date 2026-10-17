@@ -4,6 +4,7 @@ from piano_app.domain.score.document.services.mutation.engine.resolver import Re
 from piano_app.domain.score.document.services.mutation.instructions.actions.material import (
     CreateNoteCarrierAction,
     DeleteNoteCarrierAction,
+    UpdateStemAction,
 )
 
 
@@ -38,4 +39,19 @@ class DeleteNoteCarrierHandler:
     ) -> None:
         note_carrier: NoteCarrier = action.target
         note_carrier.detach(sink=sink)
+        return None
+
+
+class UpdateStemHandler:
+    """Sets how a note carrier's stem is drawn."""
+
+    def handle(
+        self,
+        *,
+        action: UpdateStemAction,
+        resolve: ResolveBound,
+        sink: MutationSink,
+    ) -> None:
+        note_carrier: NoteCarrier = action.target
+        note_carrier.set_stem(stem=action.stem, sink=sink)
         return None

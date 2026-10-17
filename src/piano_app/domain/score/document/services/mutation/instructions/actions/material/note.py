@@ -17,7 +17,7 @@ class CreateNoteAction(CreateMutationAction[Note]):
     note_carrier: Bound[NoteCarrier]
     staff: Staff
     staff_step: int
-    accidental: Accidental = Accidental.NONE
+    accidental: Accidental
     fingering: Fingering = Fingering.NONE
 
 

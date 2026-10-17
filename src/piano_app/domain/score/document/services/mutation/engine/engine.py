@@ -9,6 +9,7 @@ from piano_app.domain.score.document.services.mutation.instructions import (
 from piano_app.domain.score.document.services.mutation.instructions.actions.base import (
     CreateMutationAction,
     DeleteMutationAction,
+    UpdateMutationAction,
 )
 
 from .buffer import EmitBuffer
@@ -98,6 +99,7 @@ class MutationEngine:
                 request=item,
                 resolver=resolver,
             )
+            buffer.verify_complete()
             stack.extend(reversed(buffer.items))
 
     def _execute(self, *, action: MutationAction, resolver: Resolver, sink: MutationSink) -> None:
@@ -118,6 +120,10 @@ class MutationEngine:
         elif isinstance(action, DeleteMutationAction):
             if produced is not None:
                 raise ValueError(f"Delete handler produced an entity: {type(action).__name__}.")
+
+        elif isinstance(action, UpdateMutationAction):
+            if produced is not None:
+                raise ValueError(f"Update handler produced an entity: {type(action).__name__}.")
 
         else:
             raise ValueError(f"Action is neither create nor delete: {type(action).__name__}.")

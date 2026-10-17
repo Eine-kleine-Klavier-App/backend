@@ -1,5 +1,5 @@
 from .note import CreateNoteAnalyzer, DeleteNoteAnalyzer
-from .note_carrier import CreateNoteCarrierAnalyzer, DeleteNoteCarrierAnalyzer
+from .note_carrier import CreateNoteCarrierAnalyzer, DeleteNoteCarrierAnalyzer, UpdateStemAnalyzer
 from .rest import CreateRestAnalyzer, DeleteRestAnalyzer
 from .rest_carrier import CreateRestCarrierAnalyzer, DeleteRestCarrierAnalyzer
 
@@ -12,4 +12,5 @@ __all__ = (
     "DeleteNoteCarrierAnalyzer",
     "DeleteRestAnalyzer",
     "DeleteRestCarrierAnalyzer",
+    "UpdateStemAnalyzer",
 )

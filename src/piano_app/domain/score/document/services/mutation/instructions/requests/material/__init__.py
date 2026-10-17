@@ -1,5 +1,5 @@
 from .note import CreateNoteRequest, DeleteNoteRequest
-from .note_carrier import CreateNoteCarrierRequest, DeleteNoteCarrierRequest
+from .note_carrier import CreateNoteCarrierRequest, DeleteNoteCarrierRequest, UpdateStemRequest
 from .rest import CreateRestRequest, DeleteRestRequest
 from .rest_carrier import CreateRestCarrierRequest, DeleteRestCarrierRequest
 
@@ -12,4 +12,5 @@ __all__ = (
     "DeleteNoteRequest",
     "DeleteRestCarrierRequest",
     "DeleteRestRequest",
+    "UpdateStemRequest",
 )

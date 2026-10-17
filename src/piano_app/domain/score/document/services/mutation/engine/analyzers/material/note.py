@@ -1,6 +1,10 @@
 from piano_app.domain.score.document.models.material import Carrier, Note, NoteCarrier
-from piano_app.domain.score.document.models.structural.rhythm import LeafRhythmicContainer
-from piano_app.domain.score.document.services.helpers import find_leaf_at
+from piano_app.domain.score.document.models.structural.rhythm import (
+    LeafRhythmicContainer,
+    RhythmicContainer,
+    RhythmicContainerParent,
+)
+from piano_app.domain.score.document.services.helpers import find_container_at
 from piano_app.domain.score.document.services.mutation.engine.buffer import EmitBuffer
 from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
 from piano_app.domain.score.document.services.mutation.instructions import Bound, ResultRef
@@ -19,7 +23,7 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.rel
 
 
 class CreateNoteAnalyzer:
-    """Decides where to create a note in the requested voice slot.
+    """Decides where to create a note in the requested scope slot.
 
     A same-size leaf with a note carrier triggers a chord join; every other slot
     state delegates creation of a suitable carrier.
@@ -32,11 +36,18 @@ class CreateNoteAnalyzer:
         resolver: ResolveBound,
     ) -> EmitBuffer:
         buffer: EmitBuffer = EmitBuffer(request=request)
+        # the scope may be a group created earlier in the same gesture
+        scope: RhythmicContainerParent = resolver(request.scope)
 
-        leaf: LeafRhythmicContainer | None = find_leaf_at(
+        # only a leaf of the scope can be reused; a group starting there is a sibling the
+        # new leaf will displace
+        container: RhythmicContainer | None = find_container_at(
             measure=request.measure,
             position=request.position,
-            voice=request.voice,
+            scope=scope,
+        )
+        leaf: LeafRhythmicContainer | None = (
+            container if isinstance(container, LeafRhythmicContainer) else None
         )
         carrier: Carrier | None = leaf.carrier if leaf is not None else None
 
@@ -59,7 +70,7 @@ class CreateNoteAnalyzer:
             note_carrier = ResultRef[NoteCarrier]()
             buffer.incorporate(
                 item=CreateNoteCarrierRequest(
-                    voice=request.voice,
+                    scope=scope,
                     measure=request.measure,
                     position=request.position,
                     written_value=request.written_value,

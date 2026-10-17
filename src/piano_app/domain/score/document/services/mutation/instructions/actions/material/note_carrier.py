@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 
 from piano_app.domain.score.document.models.material import CarrierOwner, NoteCarrier
-from piano_app.domain.score.document.models.notation import Articulation
+from piano_app.domain.score.document.models.notation import Articulation, StemOverride
 from piano_app.domain.score.document.services.mutation.instructions.actions.base import (
     CreateMutationAction,
     DeleteMutationAction,
+    UpdateMutationAction,
 )
 from piano_app.domain.score.document.services.mutation.instructions.refs import Bound
 
@@ -20,3 +21,10 @@ class CreateNoteCarrierAction(CreateMutationAction[NoteCarrier]):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeleteNoteCarrierAction(DeleteMutationAction[NoteCarrier]):
     """Deletes a note carrier."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UpdateStemAction(UpdateMutationAction[NoteCarrier]):
+    """Sets how a note carrier's stem is drawn; ``None`` draws it automatically."""
+
+    stem: StemOverride | None

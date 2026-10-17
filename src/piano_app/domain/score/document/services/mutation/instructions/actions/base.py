@@ -42,3 +42,15 @@ class DeleteMutationAction[T: ScoreEntity](MutationAction):
     @property
     def produced_ref(self) -> None:
         return None
+
+
+@abstract
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UpdateMutationAction[T: ScoreEntity](MutationAction):
+    """An action that mutates an existing ``target`` in place."""
+
+    target: T
+
+    @property
+    def produced_ref(self) -> None:
+        return None

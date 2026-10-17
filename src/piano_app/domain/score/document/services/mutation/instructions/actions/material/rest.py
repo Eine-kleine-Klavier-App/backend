@@ -15,7 +15,6 @@ class CreateRestAction(CreateMutationAction[Rest]):
 
     rest_carrier: Bound[RestCarrier]
     staff: Staff
-    staff_step: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

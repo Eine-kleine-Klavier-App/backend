@@ -1,4 +1,3 @@
-from .entity import ScoreEntityResolver
-from .staff_resolver import StaffPlacement, StaffResolver
+from .staff import resolve_staff
 
-__all__ = ("ScoreEntityResolver", "StaffPlacement", "StaffResolver")
+__all__ = ("resolve_staff",)

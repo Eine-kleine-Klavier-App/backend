@@ -2,6 +2,10 @@ from collections.abc import Sequence
 
 from piano_app.domain.score.document.models import ScoreDocument
 from piano_app.domain.score.document.models.material import NoteCarrier, RestCarrier
+from piano_app.domain.score.document.models.structural.rhythm import (
+    GroupRhythmicContainer,
+    LeafRhythmicContainer,
+)
 from piano_app.domain.score.document.services.mutation.engine.postprocessors import (
     MutatedStatePostprocessor,
 )
@@ -12,6 +16,7 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.mat
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.rhythmic import (
     DeleteLeafRequest,
+    DeleteRhythmicGroupRequest,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.temporal import (
     DeleteTemporalAnchorRequest,
@@ -20,8 +25,9 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.tem
 
 class CleanupPostprocessor(MutatedStatePostprocessor):
     """Removes childless scaffolding left by deletions — empty carriers, carrier-less
-    leaves and orphan anchors. Never groups (an all-rest tuplet is valid, §6). One level
-    per pass; the fixpoint unwinds carrier → leaf → anchor.
+    leaves, groups without children and orphan anchors. A group holding only rests is
+    valid and stays. One level per pass; the fixpoint unwinds carrier → leaf → group →
+    anchor.
     """
 
     def search_fixes(
@@ -37,10 +43,18 @@ class CleanupPostprocessor(MutatedStatePostprocessor):
                     cleanup_requests.append(DeleteTemporalAnchorRequest(target=anchor))
                     continue
 
-                for leaf in anchor.leaf_containers:
-                    carrier = leaf.carrier
+                for container in anchor.containers:
+                    if isinstance(container, GroupRhythmicContainer):
+                        if not container.children:
+                            cleanup_requests.append(DeleteRhythmicGroupRequest(target=container))
+                        continue
+
+                    if not isinstance(container, LeafRhythmicContainer):
+                        raise ValueError(f"Unknown container type: {type(container)}")
+
+                    carrier = container.carrier
                     if carrier is None:
-                        cleanup_requests.append(DeleteLeafRequest(target=leaf))
+                        cleanup_requests.append(DeleteLeafRequest(target=container))
                         continue
 
                     if isinstance(carrier, NoteCarrier) and not carrier.notes:
