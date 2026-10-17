@@ -9,7 +9,7 @@ from piano_app.domain.score.document.models.structural.rhythm import (
 )
 
 from .coordinates import Point, Span
-from .frame import Frame, RootFrame
+from .frame import Frame
 from .queries import Meeting, containing, footprint, meetings
 from .transform import Transform
 
@@ -48,33 +48,19 @@ def _anchor_position(*, anchor: TemporalAnchor) -> Fraction:
     return _measure_origin(measure=anchor.measure) + anchor.position.value
 
 
-def _offset_in_parent(*, container: RhythmicContainer) -> Fraction:
-    """Where the container begins inside its parent frame.
+def _offset_in_parent(*, container: RhythmicContainer, root: _ScoreFrame) -> Fraction:
+    """Where the container begins inside its parent frame: its own anchor, restated there.
 
-    Never stored: inserting a sibling shifts everything to its right, so a cached
-    offset would be stale after every edit. Derived live instead.
+    One rule for a voice and a group. Never packed from the earlier siblings — in the
+    middle of a gesture a sibling may be missing, while the container's anchor is its
+    position regardless — and never stored, since the anchor is the only truth.
     """
-    parent: RhythmicContainerParent = container.parent
+    start: Point = Point(frame=root, value=_anchor_position(anchor=container.start_anchor))
 
-    # inside a group, position is the room the earlier siblings already take
-    if isinstance(parent, GroupRhythmicContainer):
-        offset: Fraction = Fraction(0)
-        for child in parent.children:
-            if child is container:
-                return offset
-
-            offset += child.occupied_size.fraction
-
-        raise ValueError("Container is not among its parent's children.")
-
-    # otherwise it sits on the global timeline, located by its own anchor
-    if isinstance(parent, Voice):
-        return _anchor_position(anchor=container.start_anchor)
-
-    raise TypeError(f"Parent is not a voice or a group: {parent!r}")
+    return start.to(frame=_frame_of_scope(scope=container.parent, root=root)).value
 
 
-def _frame_of_scope(*, scope: RhythmicContainerParent, root: RootFrame) -> Frame:
+def _frame_of_scope(*, scope: RhythmicContainerParent, root: _ScoreFrame) -> Frame:
     """The coordinate space a parent stands for.
 
     The single place in the whole geometry stack that asks what kind of parent it is
@@ -85,12 +71,44 @@ def _frame_of_scope(*, scope: RhythmicContainerParent, root: RootFrame) -> Frame
         return _GroupFrame(source=scope, root=root)
 
     # a voice owns a set of children but is not a coordinate space of its own — it
-    # has no extent and compresses nothing, so its containers sit directly on the
-    # global timeline
+    # starts nowhere and compresses nothing, so its containers sit directly on the
+    # score's timeline
     if isinstance(scope, Voice):
         return root
 
     raise TypeError(f"Scope is not a voice or a group: {scope!r}")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ScoreFrame:
+    """The score's whole timeline as a coordinate space — the root every other frame
+    maps into, and the space a voice's containers sit in.
+
+    ``head`` does both of the root's jobs: it identifies the timeline (two roots over one
+    document are equal, so frames built by separate short-lived bridges combine, while
+    two documents are what ``UnreachableFrameError`` catches), and the length is read
+    from it — the timeline ends where the last measure does.
+    """
+
+    head: Measure
+
+    @property
+    def parent(self) -> None:
+        return None
+
+    @property
+    def to_parent(self) -> Transform:
+        return Transform.identity()
+
+    @property
+    def extent(self) -> Fraction:
+        total: Fraction = Fraction(0)
+        measure: Measure | None = self.head
+        while measure is not None:
+            total += measure.time_signature.fraction
+            measure = measure.next_measure
+
+        return total
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -99,10 +117,10 @@ class _MeasureFrame:
     compressing."""
 
     source: Measure
-    root: RootFrame
+    root: _ScoreFrame
 
     @property
-    def parent(self) -> RootFrame:
+    def parent(self) -> _ScoreFrame:
         return self.root
 
     @property
@@ -120,7 +138,7 @@ class _GroupFrame:
     room it occupies outside."""
 
     source: GroupRhythmicContainer
-    root: RootFrame
+    root: _ScoreFrame
 
     @property
     def parent(self) -> Frame:
@@ -131,7 +149,7 @@ class _GroupFrame:
         return Transform.of_nesting(
             written=self.source.written_size.fraction,
             occupied=self.source.occupied_size.fraction,
-            offset=_offset_in_parent(container=self.source),
+            offset=_offset_in_parent(container=self.source, root=self.root),
         )
 
     @property
@@ -152,7 +170,7 @@ class ScoreGeometry:
         # holds a measure, and both routes must agree or their coordinates would not
         # combine
         self._head: Measure = _head_measure(measure=origin)
-        self._root: RootFrame = RootFrame(owner=self._head)
+        self._root: _ScoreFrame = _ScoreFrame(head=self._head)
 
     @property
     def root(self) -> Frame:
@@ -182,7 +200,7 @@ class ScoreGeometry:
         """
         return Span(
             frame=_frame_of_scope(scope=container.parent, root=self._root),
-            start=_offset_in_parent(container=container),
+            start=_offset_in_parent(container=container, root=self._root),
             length=container.occupied_size.fraction,
         )
 

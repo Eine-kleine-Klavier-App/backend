@@ -22,9 +22,8 @@ def _require_inside(*, frame: Frame, start: Fraction, end: Fraction) -> None:
     if start < 0:
         raise OutsideFrameError(f"Coordinate {start} lies before the frame.")
 
-    extent: Fraction | None = frame.extent
-    if extent is not None and end > extent:
-        raise OutsideFrameError(f"Coordinate {end} lies past the frame's extent {extent}.")
+    if end > frame.extent:
+        raise OutsideFrameError(f"Coordinate {end} lies past the frame's extent {frame.extent}.")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
