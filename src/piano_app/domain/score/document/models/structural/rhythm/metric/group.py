@@ -15,24 +15,26 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class GroupRhythmicContainer(RhythmicContainer):
-    # empty allowed only during construction
+    # may be empty at any time: the group starts at its own anchor, not at a child
     _children: list[RhythmicContainer] = field(default_factory=list)
 
     @property
     def children(self) -> Sequence[RhythmicContainer]:
         return self._children
 
-    @property
-    def start_anchor(self) -> TemporalAnchor:
-        """The first child's start is the group's start because children are sorted."""
-        # use property because it will raise before accessing if no children
-        return self.children[0].start_anchor
+    def _check_invariants(self) -> None:
+        super()._check_invariants()
+
+        # a group sounding exactly as long as it is written scales nothing
+        if self.written_size.fraction == self.occupied_size.fraction:
+            raise ValueError("A rhythmic group must differ in written and occupied size.")
 
     @classmethod
     def create(
         cls,
         *,
         parent: RhythmicContainerParent,
+        anchor: TemporalAnchor,
         written_size: RhythmicSize,
         occupied_size: RhythmicSize,
         sink: MutationSink = DIRECT_SINK,
@@ -41,6 +43,7 @@ class GroupRhythmicContainer(RhythmicContainer):
             written_size=written_size,
             occupied_size=occupied_size,
             _parent=parent,
+            _anchor=anchor,
         )
 
         group.attach(sink=sink)
@@ -52,6 +55,7 @@ class GroupRhythmicContainer(RhythmicContainer):
         *,
         id: str,
         parent: RhythmicContainerParent,
+        anchor: TemporalAnchor,
         written_size: RhythmicSize,
         occupied_size: RhythmicSize,
         sink: MutationSink = DIRECT_SINK,
@@ -61,6 +65,7 @@ class GroupRhythmicContainer(RhythmicContainer):
             written_size=written_size,
             occupied_size=occupied_size,
             _parent=parent,
+            _anchor=anchor,
         )
 
         group.attach(sink=sink)

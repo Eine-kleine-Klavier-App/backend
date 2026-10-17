@@ -13,8 +13,6 @@ if TYPE_CHECKING:
 @abstract
 @dataclass(slots=True, kw_only=True, eq=False)
 class CarrierGroupRelation(GroupRelation["Carrier"]):
-    _members: list[Carrier]
-
     def attach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
         for carrier in self._members:
             carrier.add_carrier_group_relation(relation=self, sink=sink)
@@ -53,8 +51,8 @@ class CarrierGroupRelation(GroupRelation["Carrier"]):
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class Beam(CarrierGroupRelation):
-    def __post_init__(self) -> None:
-        super().__post_init__()
+    def _check_members(self) -> None:
+        super()._check_members()
 
         if len(self._members) < 2:
             raise ValueError("Beam must contain at least two carriers.")
@@ -70,6 +68,7 @@ class Beam(CarrierGroupRelation):
         sink: MutationSink = DIRECT_SINK,
     ) -> Beam:
         beam: Beam = cls(_members=list(carriers))
+
         beam.attach(sink=sink)
         return beam
 
@@ -82,6 +81,7 @@ class Beam(CarrierGroupRelation):
         sink: MutationSink = DIRECT_SINK,
     ) -> Beam:
         beam: Beam = cls(id=id, _members=list(carriers))
+
         beam.attach(sink=sink)
         return beam
 

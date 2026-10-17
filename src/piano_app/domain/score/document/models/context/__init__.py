@@ -5,20 +5,15 @@ from .point import (
     KeySignatureChange,
     KeySignatureSymbol,
     PointContext,
-    ScorePointContext,
-    StaffPointContext,
     TempoChange,
-    VoicesPointContext,
 )
+from .scope import StaffScoped, VoicesScoped
 from .span import (
     Hairpin,
     OctaveTransposition,
-    ScoreSpanContext,
     Slur,
     SpanContext,
-    StaffSpanContext,
     SustainHold,
-    VoicesSpanContext,
 )
 
 __all__ = (
@@ -30,14 +25,10 @@ __all__ = (
     "KeySignatureSymbol",
     "OctaveTransposition",
     "PointContext",
-    "ScorePointContext",
-    "ScoreSpanContext",
     "Slur",
     "SpanContext",
-    "StaffPointContext",
-    "StaffSpanContext",
+    "StaffScoped",
     "SustainHold",
     "TempoChange",
-    "VoicesPointContext",
-    "VoicesSpanContext",
+    "VoicesScoped",
 )

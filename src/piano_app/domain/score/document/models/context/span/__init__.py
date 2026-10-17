@@ -1,15 +1,12 @@
 from .base import SpanContext
-from .score import ScoreSpanContext, SustainHold
-from .staff import OctaveTransposition, StaffSpanContext
-from .voices import Hairpin, Slur, VoicesSpanContext
+from .score import SustainHold
+from .staff import OctaveTransposition
+from .voices import Hairpin, Slur
 
 __all__ = (
     "Hairpin",
     "OctaveTransposition",
-    "ScoreSpanContext",
     "Slur",
     "SpanContext",
-    "StaffSpanContext",
     "SustainHold",
-    "VoicesSpanContext",
 )

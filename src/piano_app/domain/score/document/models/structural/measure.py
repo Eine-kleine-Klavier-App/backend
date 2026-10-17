@@ -12,6 +12,7 @@ from piano_app.domain.score.document.models.notation import (
 
 if TYPE_CHECKING:
     from piano_app.domain.score.document.models.structural.temporal_anchor import (
+        MeasurePosition,
         TemporalAnchor,
     )
 
@@ -25,11 +26,15 @@ _DEFAULT_TIME_SIGNATURE: RhythmicSize = RhythmicSize(
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class Measure(ScoreEntity):
-    time_signature: RhythmicSize
+    _time_signature: RhythmicSize = _DEFAULT_TIME_SIGNATURE
     _anchors: list[TemporalAnchor] = field(default_factory=list)
 
     _prev_measure: Measure | None = None
     _next_measure: Measure | None = None
+
+    @property
+    def time_signature(self) -> RhythmicSize:
+        return self._time_signature
 
     @property
     def anchors(self) -> Sequence[TemporalAnchor]:
@@ -49,13 +54,26 @@ class Measure(ScoreEntity):
         *,
         time_signature: RhythmicSize = _DEFAULT_TIME_SIGNATURE,
     ) -> Measure:
-        return cls(time_signature=time_signature)
+        return cls(_time_signature=time_signature)
+
+    @classmethod
+    def reconstruct(
+        cls,
+        *,
+        id: str,
+        time_signature: RhythmicSize = _DEFAULT_TIME_SIGNATURE,
+    ) -> Measure:
+        return cls(id=id, _time_signature=time_signature)
 
     def set_next(self, *, next_measure: Measure | None, sink: MutationSink = DIRECT_SINK) -> None:
         sink.set_field(self, "_next_measure", next_measure)
 
     def set_prev(self, *, prev_measure: Measure | None, sink: MutationSink = DIRECT_SINK) -> None:
         sink.set_field(self, "_prev_measure", prev_measure)
+
+    def holds(self, *, position: MeasurePosition) -> bool:
+        """Whether a position falls inside this measure — at or past its end it does not."""
+        return position.value < self.time_signature.fraction
 
     def precedes(self, other: Measure) -> bool:
         next_measure: Measure | None = self._next_measure
@@ -76,7 +94,7 @@ class Measure(ScoreEntity):
         if anchor.measure is not self:
             raise ValueError("Cannot add anchor that is not in this measure.")
 
-        if anchor.position.value >= self.time_signature.fraction:
+        if not self.holds(position=anchor.position):
             raise ValueError(
                 f"Anchor position {anchor.position} lies at or beyond the end of "
                 f"the measure (length {self.time_signature.fraction})."

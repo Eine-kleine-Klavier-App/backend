@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 @abstract
-@dataclass(slots=True, kw_only=True, eq=False)
+@dataclass(kw_only=True, eq=False)
 class Context(ScoreEntity):
     """Role base: an event placed directly on the timeline.
 
@@ -19,7 +19,14 @@ class Context(ScoreEntity):
     starts somewhere; ``SpanContext`` additionally ends somewhere.
     """
 
-    start: TemporalAnchor
+    _start: TemporalAnchor
+
+    @property
+    def start(self) -> TemporalAnchor:
+        return self._start
+
+    def precedes(self, other: Context) -> bool:
+        return self.start.precedes(other.start)
 
     def attach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
         self.start.add_starting_context(context=self, sink=sink)

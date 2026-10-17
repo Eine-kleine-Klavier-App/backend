@@ -12,14 +12,6 @@ if TYPE_CHECKING:
 @abstract
 @dataclass(slots=True, kw_only=True, eq=False)
 class MusicalItem(ScoreEntity):
-    """
-    Staff step index:
-    0 is the first line,
-    1 is the first gap above it,
-    -1 is the gap below the first line.
-    """
-
-    staff_step: int
     _staff: Staff
 
     @property

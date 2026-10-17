@@ -12,6 +12,9 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class Rest(MusicalItem):
+    """A rest on a staff. Where on the staff it is drawn is the renderer's call and is
+    never stored on the rest itself."""
+
     _rest_carrier: RestCarrier
 
     @property
@@ -24,11 +27,9 @@ class Rest(MusicalItem):
         *,
         rest_carrier: RestCarrier,
         staff: Staff,
-        staff_step: int,
         sink: MutationSink = DIRECT_SINK,
     ) -> Rest:
         rest: Rest = cls(
-            staff_step=staff_step,
             _staff=staff,
             _rest_carrier=rest_carrier,
         )
@@ -43,12 +44,10 @@ class Rest(MusicalItem):
         id: str,
         rest_carrier: RestCarrier,
         staff: Staff,
-        staff_step: int,
         sink: MutationSink = DIRECT_SINK,
     ) -> Rest:
         rest: Rest = cls(
             id=id,
-            staff_step=staff_step,
             _staff=staff,
             _rest_carrier=rest_carrier,
         )

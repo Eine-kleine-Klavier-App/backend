@@ -6,8 +6,7 @@ from piano_app.domain.score.document.models.base import ScoreEntity
 from piano_app.domain.score.document.models.mutation_sink import DIRECT_SINK, MutationSink
 
 if TYPE_CHECKING:
-    from piano_app.domain.score.document.models.context.point.voices import VoicesPointContext
-    from piano_app.domain.score.document.models.context.span.voices import VoicesSpanContext
+    from piano_app.domain.score.document.models.context.scope.voices import VoicesScoped
     from piano_app.domain.score.document.models.structural.rhythm.metric import (
         RhythmicContainer,
     )
@@ -19,7 +18,7 @@ class Voice(ScoreEntity):
     _children: list[RhythmicContainer] = field(default_factory=list)
     # many-to-many with contexts: a context can name several voices, and one voice
     # can be named by several contexts over time
-    _contexts: list[VoicesPointContext | VoicesSpanContext] = field(default_factory=list)
+    _contexts: list[VoicesScoped] = field(default_factory=list)
 
     # no constraint on emptiness in voice
     @property
@@ -27,7 +26,7 @@ class Voice(ScoreEntity):
         return self._children
 
     @property
-    def contexts(self) -> Sequence[VoicesPointContext | VoicesSpanContext]:
+    def contexts(self) -> Sequence[VoicesScoped]:
         return self._contexts
 
     def add_child(
@@ -66,7 +65,7 @@ class Voice(ScoreEntity):
     def add_context(
         self,
         *,
-        context: VoicesPointContext | VoicesSpanContext,
+        context: VoicesScoped,
         sink: MutationSink = DIRECT_SINK,
     ) -> None:
         if self not in context.voices:
@@ -75,12 +74,15 @@ class Voice(ScoreEntity):
         if context in self._contexts:
             return
 
-        sink.list_append(self._contexts, context)
+        # ordered insertion
+        index: int = sum(1 for existing in self._contexts if existing.precedes(context))
+
+        sink.list_insert(self._contexts, index, context)
 
     def remove_context(
         self,
         *,
-        context: VoicesPointContext | VoicesSpanContext,
+        context: VoicesScoped,
         sink: MutationSink = DIRECT_SINK,
     ) -> None:
         if self not in context.voices:

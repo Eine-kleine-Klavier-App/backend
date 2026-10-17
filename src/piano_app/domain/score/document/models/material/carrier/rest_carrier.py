@@ -25,9 +25,7 @@ class RestCarrier(Carrier):
         owner: CarrierOwner,
         sink: MutationSink = DIRECT_SINK,
     ) -> RestCarrier:
-        carrier: RestCarrier = cls(
-            _owner=owner,
-        )
+        carrier: RestCarrier = cls(_owner=owner)
 
         carrier.attach(sink=sink)
         return carrier
@@ -40,10 +38,7 @@ class RestCarrier(Carrier):
         owner: CarrierOwner,
         sink: MutationSink = DIRECT_SINK,
     ) -> RestCarrier:
-        carrier: RestCarrier = cls(
-            id=id,
-            _owner=owner,
-        )
+        carrier: RestCarrier = cls(id=id, _owner=owner)
 
         carrier.attach(sink=sink)
         return carrier

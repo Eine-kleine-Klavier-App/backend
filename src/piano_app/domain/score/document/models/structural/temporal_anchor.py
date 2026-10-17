@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from piano_app.domain.score.document.models.context import Context, SpanContext
     from piano_app.domain.score.document.models.structural.measure import Measure
     from piano_app.domain.score.document.models.structural.rhythm.metric import (
-        LeafRhythmicContainer,
+        RhythmicContainer,
     )
 
 
@@ -38,21 +38,28 @@ class MeasurePosition:
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class TemporalAnchor(ScoreEntity):
-    position: MeasurePosition
+    _position: MeasurePosition
     _measure: Measure
 
-    _leaf_containers: list[LeafRhythmicContainer] = field(default_factory=list)
+    # every rhythmic container starting here — leaves and groups, of every voice; within
+    # one scope at most one, nested containers starting at the same instant live in
+    # different scopes
+    _containers: list[RhythmicContainer] = field(default_factory=list)
 
     _starting_contexts: list[Context] = field(default_factory=list)
     _ending_contexts: list[SpanContext] = field(default_factory=list)
+
+    @property
+    def position(self) -> MeasurePosition:
+        return self._position
 
     @property
     def measure(self) -> Measure:
         return self._measure
 
     @property
-    def leaf_containers(self) -> Sequence[LeafRhythmicContainer]:
-        return self._leaf_containers
+    def containers(self) -> Sequence[RhythmicContainer]:
+        return self._containers
 
     @property
     def starting_contexts(self) -> Sequence[Context]:
@@ -64,9 +71,7 @@ class TemporalAnchor(ScoreEntity):
 
     @property
     def is_orphan(self) -> bool:
-        return (
-            not self._leaf_containers and not self._starting_contexts and not self._ending_contexts
-        )
+        return not self._containers and not self._starting_contexts and not self._ending_contexts
 
     @classmethod
     def create(
@@ -76,10 +81,7 @@ class TemporalAnchor(ScoreEntity):
         position: MeasurePosition,
         sink: MutationSink = DIRECT_SINK,
     ) -> TemporalAnchor:
-        anchor: TemporalAnchor = cls(
-            position=position,
-            _measure=measure,
-        )
+        anchor: TemporalAnchor = cls(_position=position, _measure=measure)
 
         anchor.attach(sink=sink)
         return anchor
@@ -93,11 +95,7 @@ class TemporalAnchor(ScoreEntity):
         position: MeasurePosition,
         sink: MutationSink = DIRECT_SINK,
     ) -> TemporalAnchor:
-        anchor: TemporalAnchor = cls(
-            id=id,
-            position=position,
-            _measure=measure,
-        )
+        anchor: TemporalAnchor = cls(id=id, _position=position, _measure=measure)
 
         anchor.attach(sink=sink)
         return anchor
@@ -135,33 +133,33 @@ class TemporalAnchor(ScoreEntity):
 
         return self._measure is measure and self.position <= position
 
-    def add_leaf_container(
+    def add_container(
         self,
         *,
-        leaf_container: LeafRhythmicContainer,
+        container: RhythmicContainer,
         sink: MutationSink = DIRECT_SINK,
     ) -> None:
-        if leaf_container.anchor is not self:
-            raise ValueError("Cannot add leaf container bound to a different anchor.")
+        if container.start_anchor is not self:
+            raise ValueError("Cannot add container starting at a different anchor.")
 
-        if leaf_container in self._leaf_containers:
+        if container in self._containers:
             return
 
-        sink.list_append(self._leaf_containers, leaf_container)
+        sink.list_append(self._containers, container)
 
-    def remove_leaf_container(
+    def remove_container(
         self,
         *,
-        leaf_container: LeafRhythmicContainer,
+        container: RhythmicContainer,
         sink: MutationSink = DIRECT_SINK,
     ) -> None:
-        if leaf_container.anchor is not self:
-            raise ValueError("Cannot remove leaf container bound to a different anchor.")
+        if container.start_anchor is not self:
+            raise ValueError("Cannot remove container starting at a different anchor.")
 
-        if leaf_container not in self._leaf_containers:
+        if container not in self._containers:
             return
 
-        sink.list_remove(self._leaf_containers, leaf_container)
+        sink.list_remove(self._containers, container)
 
     def add_starting_context(
         self,

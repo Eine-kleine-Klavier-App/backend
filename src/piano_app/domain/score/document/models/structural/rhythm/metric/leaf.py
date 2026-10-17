@@ -15,8 +15,6 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class LeafRhythmicContainer(RhythmicContainer):
-    _anchor: TemporalAnchor
-
     _carrier: Carrier | None = None
     _grace_before: GraceGroup | None = None  # True optional
     _grace_after: GraceGroup | None = None  # True optional
@@ -36,10 +34,6 @@ class LeafRhythmicContainer(RhythmicContainer):
     @property
     def grace_after(self) -> GraceGroup | None:
         return self._grace_after
-
-    @property
-    def start_anchor(self) -> TemporalAnchor:
-        return self._anchor
 
     @classmethod
     def create(
@@ -80,24 +74,6 @@ class LeafRhythmicContainer(RhythmicContainer):
 
         leaf.attach(sink=sink)
         return leaf
-
-    def attach(
-        self,
-        *,
-        sink: MutationSink = DIRECT_SINK,
-    ) -> None:
-        super().attach(sink=sink)
-
-        self._anchor.add_leaf_container(leaf_container=self, sink=sink)
-
-    def detach(
-        self,
-        *,
-        sink: MutationSink = DIRECT_SINK,
-    ) -> None:
-        self._anchor.remove_leaf_container(leaf_container=self, sink=sink)
-
-        super().detach(sink=sink)
 
     def attach_carrier(
         self,
