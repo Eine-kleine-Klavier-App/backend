@@ -22,6 +22,8 @@ from piano_app.domain.score.document.models.notation import (
     GraceType,
     RhythmicSize,
     RhythmicValue,
+    StemDirection,
+    StemOverride,
 )
 from piano_app.domain.score.document.models.relations import Beam, Relation, Tie
 from piano_app.domain.score.document.models.structural import (
@@ -72,23 +74,15 @@ class _Serializer:
 
                 # TODO collect context
 
-                for leaf in anchor.leaf_containers:
-                    hierarchy: list[RhythmicContainer] = [leaf]
+                # every rhythmic container — leaf or group, even an empty group — starts
+                # at an anchor, so the anchors reach all of them; restoring resolves
+                # parents in waves, so their order here does not matter
+                for container in anchor.containers:
+                    self._add(into=self._containers, entity=container)
+                    if not isinstance(container, LeafRhythmicContainer):
+                        continue
 
-                    parent: RhythmicContainerParent = leaf.parent
-                    while not isinstance(parent, Voice):
-                        if isinstance(parent, GroupRhythmicContainer):
-                            hierarchy.append(parent)
-                            parent = parent.parent
-                        else:
-                            raise TypeError(
-                                f"Unsupported rhythmic container type: {type(parent).__name__}."
-                            )
-
-                    # in reverse order, so that top level containers are added first
-                    # to be able to resolve immediately in deserialization
-                    for container in reversed(hierarchy):
-                        self._add(into=self._containers, entity=container)
+                    leaf: LeafRhythmicContainer = container
 
                     grace_before: GraceGroup | None = leaf.grace_before
                     if grace_before is not None:
@@ -202,6 +196,7 @@ class _Serializer:
         common: dict[str, Any] = {
             "id": container.id,
             "parent_id": parent_id,
+            "anchor_id": container.start_anchor.id,
             **self._serialize_rhythmic_size(size=container.written_size, prefix="written"),
             **self._serialize_rhythmic_size(size=container.occupied_size, prefix="occupied"),
         }
@@ -209,7 +204,6 @@ class _Serializer:
         if isinstance(container, LeafRhythmicContainer):
             return common | {
                 "kind": "leaf",
-                "anchor_id": container.anchor.id,
             }
 
         if isinstance(container, GroupRhythmicContainer):
@@ -251,9 +245,13 @@ class _Serializer:
         }
 
         if isinstance(carrier, NoteCarrier):
+            stem: StemOverride | None = carrier.stem
             return common | {
                 "kind": "note_carrier",
                 "articulation": carrier.articulation.value,
+                "stem": None
+                if stem is None
+                else {"direction": stem.direction.value, "length_percent": stem.length_percent},
             }
 
         if isinstance(carrier, RestCarrier):
@@ -267,12 +265,12 @@ class _Serializer:
         common: dict[str, Any] = {
             "id": item.id,
             "staff_id": item.staff.id,
-            "staff_step": item.staff_step,
         }
 
         if isinstance(item, Note):
             return common | {
                 "kind": "note",
+                "staff_step": item.staff_step,
                 "note_carrier_id": item.note_carrier.id,
                 "accidental": item.accidental.value,
                 "fingering": item.fingering.value,
@@ -373,7 +371,7 @@ class _Deserializer:
     def _build_measures(self) -> dict[str, Measure]:
         by_id: dict[str, Measure] = {}
         for row in self._data["measures"]:
-            measure: Measure = Measure(
+            measure: Measure = Measure.reconstruct(
                 id=row["id"],
                 time_signature=self._rhythmic_size(row=row, prefix="time_signature"),
             )
@@ -452,6 +450,7 @@ class _Deserializer:
             return GroupRhythmicContainer.reconstruct(
                 id=row["id"],
                 parent=parent,
+                anchor=self._anchors_by_id[row["anchor_id"]],
                 written_size=written_size,
                 occupied_size=occupied_size,
             )
@@ -499,6 +498,12 @@ class _Deserializer:
                     id=row["id"],
                     owner=owner,
                     articulation=Articulation(row["articulation"]),
+                    stem=None
+                    if row["stem"] is None
+                    else StemOverride(
+                        direction=StemDirection(row["stem"]["direction"]),
+                        length_percent=row["stem"]["length_percent"],
+                    ),
                 )
             elif kind == "rest_carrier":
                 by_id[row["id"]] = RestCarrier.reconstruct(id=row["id"], owner=owner)
@@ -535,7 +540,6 @@ class _Deserializer:
                     id=row["id"],
                     rest_carrier=rest_carrier,
                     staff=staff,
-                    staff_step=row["staff_step"],
                 )
             else:
                 raise ValueError(f"Unsupported musical item kind: {kind}.")
