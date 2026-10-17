@@ -42,6 +42,7 @@ from piano_app.application.use_cases.score.draft.service import DraftService
 from piano_app.domain.score.document.services.mutation import (
     MutationCompiler,
     MutationEngine,
+    build_compiler,
     build_engine,
 )
 
@@ -144,7 +145,7 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
     current_user_optional: CurrentUserOptional = CurrentUserOptional(service=auth_service)
 
     engine: MutationEngine = build_engine()
-    compiler: MutationCompiler = MutationCompiler()
+    compiler: MutationCompiler = build_compiler()
     history: DraftHistory = build_draft_history(
         settings=resolved_settings, codec=codec, stack=stack
     )

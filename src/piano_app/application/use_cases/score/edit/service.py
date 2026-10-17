@@ -1,10 +1,5 @@
 from collections.abc import Sequence
 
-from piano_app.application.contracts.score import (
-    DeleteBatchCommand,
-    InsertNoteCommand,
-    TieNotesCommand,
-)
 from piano_app.application.errors import (
     DraftNotFoundError,
     DraftVersionConflictError,
@@ -19,6 +14,7 @@ from piano_app.application.ports.score import (
 from piano_app.application.use_cases.score.shared import ScoreView, require_accessible_draft
 from piano_app.domain.score.document import ScoreDocument
 from piano_app.domain.score.document.services.mutation import MutationCompiler, MutationEngine
+from piano_app.domain.score.document.services.mutation.compiler import EditIntent
 from piano_app.domain.score.document.services.mutation.instructions import (
     MutationRejectedError,
     MutationRequest,
@@ -45,61 +41,20 @@ class ScoreEditService:
         self._compiler: MutationCompiler = compiler
         self._drafts_history: DraftHistory = history
 
-    async def insert_note(
+    async def apply(
         self,
         *,
         draft_id: str,
         actor_id: str,
-        command: InsertNoteCommand,
+        intent: EditIntent,
     ) -> ScoreView:
+        """Runs one edit intent against the draft as one gesture and commits it."""
         versioned: VersionedDraftDocument = await self._load(draft_id=draft_id, actor_id=actor_id)
         document: ScoreDocument = versioned.document
         try:
-            requests: Sequence[MutationRequest] = self._compiler.compile_insert_note(
+            requests: Sequence[MutationRequest] = self._compiler.compile(
                 document=document,
-                intent=command,
-            )
-            self._run(document=document, requests=requests)
-        except MutationRejectedError as error:
-            raise ScoreEditRejectedError(reason=error.reason) from error
-
-        await self._commit(versioned=versioned)
-        return ScoreView(document=document)
-
-    async def tie_notes(
-        self,
-        *,
-        draft_id: str,
-        actor_id: str,
-        command: TieNotesCommand,
-    ) -> ScoreView:
-        versioned: VersionedDraftDocument = await self._load(draft_id=draft_id, actor_id=actor_id)
-        document: ScoreDocument = versioned.document
-        try:
-            requests: Sequence[MutationRequest] = self._compiler.compile_tie_notes(
-                document=document,
-                intent=command,
-            )
-            self._run(document=document, requests=requests)
-        except MutationRejectedError as error:
-            raise ScoreEditRejectedError(reason=error.reason) from error
-
-        await self._commit(versioned=versioned)
-        return ScoreView(document=document)
-
-    async def delete_batch(
-        self,
-        *,
-        draft_id: str,
-        actor_id: str,
-        command: DeleteBatchCommand,
-    ) -> ScoreView:
-        versioned: VersionedDraftDocument = await self._load(draft_id=draft_id, actor_id=actor_id)
-        document: ScoreDocument = versioned.document
-        try:
-            requests: Sequence[MutationRequest] = self._compiler.compile_delete_batch(
-                document=document,
-                intent=command,
+                intent=intent,
             )
             self._run(document=document, requests=requests)
         except MutationRejectedError as error:

@@ -6,7 +6,7 @@ from piano_app.adapters.inbound.http.current_user import CurrentUser
 from piano_app.application.use_cases.score import ScoreEditService
 from piano_app.application.use_cases.score.shared import ScoreView
 
-from .requests import DeleteBatchRequest, InsertNoteRequest, TieNotesRequest
+from .requests import DeleteBatchRequest, InsertNoteRequest, SetStemsRequest, TieNotesRequest
 from .responses import ScoreEditedResponse
 
 
@@ -22,10 +22,10 @@ def build_edit_router(*, service: ScoreEditService, current_user: CurrentUser) -
         actor_id: Annotated[str, Depends(current_user)],
         request: Annotated[InsertNoteRequest, Body(description="The insert command")],
     ) -> ScoreEditedResponse:
-        view: ScoreView = await service.insert_note(
+        view: ScoreView = await service.apply(
             draft_id=draft_id,
             actor_id=actor_id,
-            command=request.to_command(),
+            intent=request.to_intent(),
         )
         return ScoreEditedResponse.from_view(view)
 
@@ -35,10 +35,10 @@ def build_edit_router(*, service: ScoreEditService, current_user: CurrentUser) -
         actor_id: Annotated[str, Depends(current_user)],
         request: Annotated[TieNotesRequest, Body(description="The tie command")],
     ) -> ScoreEditedResponse:
-        view: ScoreView = await service.tie_notes(
+        view: ScoreView = await service.apply(
             draft_id=draft_id,
             actor_id=actor_id,
-            command=request.to_command(),
+            intent=request.to_intent(),
         )
         return ScoreEditedResponse.from_view(view)
 
@@ -48,8 +48,23 @@ def build_edit_router(*, service: ScoreEditService, current_user: CurrentUser) -
         actor_id: Annotated[str, Depends(current_user)],
         request: Annotated[DeleteBatchRequest, Body(description="The delete command")],
     ) -> ScoreEditedResponse:
-        view: ScoreView = await service.delete_batch(
-            draft_id=draft_id, actor_id=actor_id, command=request.to_command()
+        view: ScoreView = await service.apply(
+            draft_id=draft_id,
+            actor_id=actor_id,
+            intent=request.to_intent(),
+        )
+        return ScoreEditedResponse.from_view(view)
+
+    @router.put(path="/stems", status_code=200)
+    async def set_stems(
+        draft_id: Annotated[str, Path(description="The draft ID")],
+        actor_id: Annotated[str, Depends(current_user)],
+        request: Annotated[SetStemsRequest, Body(description="The stem override command")],
+    ) -> ScoreEditedResponse:
+        view: ScoreView = await service.apply(
+            draft_id=draft_id,
+            actor_id=actor_id,
+            intent=request.to_intent(),
         )
         return ScoreEditedResponse.from_view(view)
 

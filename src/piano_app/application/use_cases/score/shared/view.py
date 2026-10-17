@@ -7,7 +7,11 @@ from piano_app.domain.score.document.models.material import (
     RestCarrier,
 )
 from piano_app.domain.score.document.models.material.primitive import MusicalItem, Note, Rest
-from piano_app.domain.score.document.models.notation import DottedRhythmicValue, RhythmicSize
+from piano_app.domain.score.document.models.notation import (
+    DottedRhythmicValue,
+    RhythmicSize,
+    StemOverride,
+)
 from piano_app.domain.score.document.models.relations import Beam, Relation, Tie
 from piano_app.domain.score.document.models.structural import Measure, Staff, Voice
 from piano_app.domain.score.document.models.structural.rhythm import (
@@ -115,10 +119,14 @@ class ScoreView:
         }
 
         if isinstance(carrier, NoteCarrier):
+            stem: StemOverride | None = carrier.stem
             return common | {
                 "kind": "chord",
                 "articulation": carrier.articulation.value,
                 "note_ids": [note.id for note in carrier.notes],
+                "stem": None
+                if stem is None
+                else {"direction": stem.direction.value, "length_percent": stem.length_percent},
             }
 
         if isinstance(carrier, RestCarrier):
@@ -134,12 +142,12 @@ class ScoreView:
         common: dict[str, object] = {
             "id": item.id,
             "staff_id": item.staff.id,
-            "staff_step": item.staff_step,
         }
 
         if isinstance(item, Note):
             return common | {
                 "kind": "note",
+                "staff_step": item.staff_step,
                 "accidental": item.accidental.value,
                 "fingering": int(item.fingering),
             }
