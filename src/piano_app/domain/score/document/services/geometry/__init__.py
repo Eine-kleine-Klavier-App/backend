@@ -1,6 +1,6 @@
 from .coordinates import Duration, Point, Span
 from .errors import FrameMismatchError, OutsideFrameError, UnreachableFrameError
-from .frame import Frame, RootFrame, conversion, to_root
+from .frame import Frame, conversion, to_root
 from .queries import Meeting, containing, footprint, gaps, interior, meetings, overflow
 from .transform import Transform
 
@@ -11,7 +11,6 @@ __all__ = (
     "Meeting",
     "OutsideFrameError",
     "Point",
-    "RootFrame",
     "Span",
     "Transform",
     "UnreachableFrameError",

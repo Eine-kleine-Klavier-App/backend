@@ -1,13 +1,14 @@
-from piano_app.domain.score.document.models.context.point.staff import StaffPointContext
+from piano_app.domain.score.document.models.context.scope.staff import StaffScoped
 from piano_app.domain.score.document.models.structural import (
     Measure,
     MeasurePosition,
     Staff,
     TemporalAnchor,
-    Voice,
 )
-from piano_app.domain.score.document.models.structural.rhythm import LeafRhythmicContainer
-from piano_app.domain.score.document.services.helpers import voice_of
+from piano_app.domain.score.document.models.structural.rhythm import (
+    RhythmicContainer,
+    RhythmicContainerParent,
+)
 
 # Slot lookup: what already sits at a given place in the model. Purely a question
 # about occupancy, not about coordinates -- anything that needs to measure, project
@@ -26,39 +27,32 @@ def find_anchor_at(
     )
 
 
-def find_leaf_of_voice_at_anchor(
-    *,
-    anchor: TemporalAnchor,
-    voice: Voice,
-) -> LeafRhythmicContainer | None:
-    # validate only one leaf container per voice at one anchor
-    leaves: list[LeafRhythmicContainer] = [
-        leaf for leaf in anchor.leaf_containers if voice_of(leaf) is voice
-    ]
-    if len(leaves) > 1:
-        raise ValueError(f"Multiple leaf containers found for voice {voice} at one anchor.")
-
-    # return this only leaf container or None
-    return leaves[0] if leaves else None
-
-
-def find_leaf_at(
+def find_container_at(
     *,
     measure: Measure,
     position: MeasurePosition,
-    voice: Voice,
-) -> LeafRhythmicContainer | None:
+    scope: RhythmicContainerParent,
+) -> RhythmicContainer | None:
+    """The container — a leaf or a group — starting at this slot in this scope.
+
+    Nested containers starting at the same instant share the anchor but live in different
+    scopes, so only a direct child of the scope counts; within one scope siblings never
+    overlap, so there is at most one.
+    """
     anchor: TemporalAnchor | None = find_anchor_at(measure=measure, position=position)
     if anchor is None:
         return None
 
-    return find_leaf_of_voice_at_anchor(
-        anchor=anchor,
-        voice=voice,
-    )
+    containers: list[RhythmicContainer] = [
+        container for container in anchor.containers if container.parent is scope
+    ]
+    if len(containers) > 1:
+        raise ValueError(f"Multiple containers start at one anchor in scope {scope}.")
+
+    return containers[0] if containers else None
 
 
-def find_staff_point_context_at[T: StaffPointContext](
+def find_staff_point_context_at[T: StaffScoped](
     *,
     anchor: TemporalAnchor,
     context_type: type[T],
@@ -66,7 +60,7 @@ def find_staff_point_context_at[T: StaffPointContext](
 ) -> T | None:
     """The context of exactly ``context_type`` already starting at this anchor, for
     this staff — the search behind the one-per-anchor-per-staff invariant. Shared by
-    every ``StaffPointContext`` creator so the invariant is enforced once, not
+    every staff-scoped point-context creator so the invariant is enforced once, not
     reimplemented per type.
     """
     return next(

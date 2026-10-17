@@ -68,14 +68,10 @@ def footprint(*, frame: Frame) -> Span:
     if parent is None:
         raise ValueError("The root frame has no parent to take up room in.")
 
-    extent: Fraction | None = frame.extent
-    if extent is None:
-        raise ValueError("An unbounded frame has no footprint.")
-
     return Span(
         frame=parent,
         start=frame.to_parent.apply_position(Fraction(0)),
-        length=frame.to_parent.apply_length(extent),
+        length=frame.to_parent.apply_length(frame.extent),
     )
 
 
@@ -85,24 +81,17 @@ def interior(*, frame: Frame) -> Span:
     The inward-facing counterpart of ``footprint``: same region, seen from inside
     rather than from the parent.
     """
-    extent: Fraction | None = frame.extent
-    if extent is None:
-        raise ValueError("An unbounded frame has no bounded interior.")
-
-    return Span(frame=frame, start=Fraction(0), length=extent)
+    return Span(frame=frame, start=Fraction(0), length=frame.extent)
 
 
 def overflow(*, span: Span) -> Fraction:
     """How far the span reaches past its own frame — zero when it fits.
 
-    Returned as a number rather than raised: a span that outgrows a group is a fact
-    the caller weighs (reject it, slice it, grow the group), not an error here.
+    Returned as a number rather than raised: a span that outgrows a group, or runs past
+    the last measure of the timeline, is a fact the caller weighs (reject it, slice it,
+    grow the space), not an error here.
     """
-    extent: Fraction | None = span.frame.extent
-    if extent is None:
-        return Fraction(0)
-
-    return max(Fraction(0), span.end - extent)
+    return max(Fraction(0), span.end - span.frame.extent)
 
 
 def gaps(*, bucket: Span, covered: Sequence[Span]) -> list[Span]:

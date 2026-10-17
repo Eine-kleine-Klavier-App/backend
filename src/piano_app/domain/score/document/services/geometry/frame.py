@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from fractions import Fraction
 from typing import Protocol
 
@@ -7,7 +6,7 @@ from .transform import Transform
 
 
 class Frame(Protocol):
-    """A coordinate space — a tuplet group, a measure, or the document root.
+    """A coordinate space — a tuplet group, a measure, or the score's whole timeline.
 
     Frames form a tree rooted at the single global timeline. A frame knows only its
     parent and the affine step into it; it knows nothing about what the space means
@@ -26,39 +25,10 @@ class Frame(Protocol):
         ...
 
     @property
-    def extent(self) -> Fraction | None:
-        """How far the space reaches in its own units, or ``None`` when unbounded
-        (the root timeline is open-ended — the score can always grow)."""
+    def extent(self) -> Fraction:
+        """How far the space reaches in its own units. Every space is bounded: even the
+        whole timeline ends — where the score's measures do."""
         ...
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class RootFrame:
-    """The one global timeline every other frame ultimately maps into.
-
-    Measures and top-level containers both project into this space, which is what
-    makes "this note inside a tuplet" and "that position in this measure" comparable
-    at all.
-
-    ``owner`` is whatever identifies the timeline — geometry never looks inside it,
-    it only compares. Two roots over the same owner are equal, so frames built by
-    separate short-lived bridges still combine; two different owners are two
-    documents, which is what ``UnreachableFrameError`` catches.
-    """
-
-    owner: object
-
-    @property
-    def parent(self) -> None:
-        return None
-
-    @property
-    def to_parent(self) -> Transform:
-        return Transform.identity()
-
-    @property
-    def extent(self) -> None:
-        return None
 
 
 def to_root(*, frame: Frame) -> tuple[Transform, Frame]:
