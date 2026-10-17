@@ -1,5 +1,5 @@
 from .note import CreateNoteHandler, DeleteNoteHandler
-from .note_carrier import CreateNoteCarrierHandler, DeleteNoteCarrierHandler
+from .note_carrier import CreateNoteCarrierHandler, DeleteNoteCarrierHandler, UpdateStemHandler
 from .rest import CreateRestHandler, DeleteRestHandler
 from .rest_carrier import CreateRestCarrierHandler, DeleteRestCarrierHandler
 
@@ -12,4 +12,5 @@ __all__ = (
     "DeleteNoteHandler",
     "DeleteRestCarrierHandler",
     "DeleteRestHandler",
+    "UpdateStemHandler",
 )

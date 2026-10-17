@@ -21,7 +21,6 @@ class CreateRestHandler:
         rest: Rest = Rest.create(
             rest_carrier=rest_carrier,
             staff=action.staff,
-            staff_step=action.staff_step,
             sink=sink,
         )
         return rest

@@ -38,3 +38,15 @@ class DeleteMutationRequest[T: ScoreEntity](MutationRequest):
     @property
     def produced_ref(self) -> None:
         return None
+
+
+@abstract
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UpdateMutationRequest[T: ScoreEntity](MutationRequest):
+    """A request that mutates an existing ``target`` in place."""
+
+    target: T
+
+    @property
+    def produced_ref(self) -> None:
+        return None

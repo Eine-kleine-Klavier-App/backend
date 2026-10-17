@@ -1,19 +1,25 @@
 from piano_app.domain.score.document.models.material import NoteCarrier, RestCarrier
 from piano_app.domain.score.document.models.notation import RhythmicSize
-from piano_app.domain.score.document.models.structural.rhythm import LeafRhythmicContainer
-from piano_app.domain.score.document.services.helpers import find_leaf_at
+from piano_app.domain.score.document.models.structural.rhythm import (
+    LeafRhythmicContainer,
+    RhythmicContainer,
+    RhythmicContainerParent,
+)
+from piano_app.domain.score.document.services.helpers import find_container_at
 from piano_app.domain.score.document.services.mutation.engine.buffer import EmitBuffer
 from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
 from piano_app.domain.score.document.services.mutation.instructions import Bound, ResultRef
 from piano_app.domain.score.document.services.mutation.instructions.actions.material import (
     CreateNoteCarrierAction,
     DeleteNoteCarrierAction,
+    UpdateStemAction,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.material import (
     CreateNoteCarrierRequest,
     DeleteNoteCarrierRequest,
     DeleteNoteRequest,
     DeleteRestCarrierRequest,
+    UpdateStemRequest,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.relations import (
     DeleteRelationRequest,
@@ -37,11 +43,18 @@ class CreateNoteCarrierAnalyzer:
         resolver: ResolveBound,
     ) -> EmitBuffer:
         buffer: EmitBuffer = EmitBuffer(request=request)
+        # the scope may be a group created earlier in the same gesture
+        scope: RhythmicContainerParent = resolver(request.scope)
 
-        leaf: LeafRhythmicContainer | None = find_leaf_at(
+        # only a leaf of the scope can be reused; a group starting there is a sibling the
+        # new leaf will displace
+        container: RhythmicContainer | None = find_container_at(
             measure=request.measure,
             position=request.position,
-            voice=request.voice,
+            scope=scope,
+        )
+        leaf: LeafRhythmicContainer | None = (
+            container if isinstance(container, LeafRhythmicContainer) else None
         )
 
         # if a same-size leaf already exists replace its carrier on it;
@@ -63,7 +76,7 @@ class CreateNoteCarrierAnalyzer:
             owner = ResultRef[LeafRhythmicContainer]()
             buffer.incorporate(
                 item=CreateLeafRequest(
-                    voice=request.voice,
+                    scope=scope,
                     measure=request.measure,
                     position=request.position,
                     size=RhythmicSize(value=request.written_value, count=1),
@@ -111,5 +124,22 @@ class DeleteNoteCarrierAnalyzer:
             buffer.incorporate(item=DeleteNoteRequest(target=note))
 
         buffer.incorporate(item=DeleteNoteCarrierAction(target=request.target))
+
+        return buffer
+
+
+class UpdateStemAnalyzer:
+    """Decides nothing: how a stem is drawn guards no invariant of the music, and the
+    override checks its own values."""
+
+    def analyze(
+        self,
+        *,
+        request: UpdateStemRequest,
+        resolver: ResolveBound,
+    ) -> EmitBuffer:
+        buffer: EmitBuffer = EmitBuffer(request=request)
+
+        buffer.incorporate(item=UpdateStemAction(target=request.target, stem=request.stem))
 
         return buffer

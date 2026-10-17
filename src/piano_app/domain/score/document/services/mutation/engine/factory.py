@@ -1,6 +1,7 @@
 from piano_app.domain.score.document.services.mutation.engine.analyzers.context import (
     CreateClefChangeAnalyzer,
     CreateKeySignatureChangeAnalyzer,
+    CreateOctaveTranspositionAnalyzer,
     DeleteContextAnalyzer,
 )
 from piano_app.domain.score.document.services.mutation.engine.analyzers.material import (
@@ -12,6 +13,7 @@ from piano_app.domain.score.document.services.mutation.engine.analyzers.material
     DeleteNoteCarrierAnalyzer,
     DeleteRestAnalyzer,
     DeleteRestCarrierAnalyzer,
+    UpdateStemAnalyzer,
 )
 from piano_app.domain.score.document.services.mutation.engine.analyzers.relations import (
     CreateTieAnalyzer,
@@ -19,6 +21,7 @@ from piano_app.domain.score.document.services.mutation.engine.analyzers.relation
 )
 from piano_app.domain.score.document.services.mutation.engine.analyzers.rhythmic import (
     CreateLeafAnalyzer,
+    CreateRhythmicGroupAnalyzer,
     DeleteLeafAnalyzer,
     DeleteRhythmicGroupAnalyzer,
 )
@@ -30,6 +33,7 @@ from piano_app.domain.score.document.services.mutation.engine.engine import Muta
 from piano_app.domain.score.document.services.mutation.engine.handlers.context import (
     CreateClefChangeHandler,
     CreateKeySignatureChangeHandler,
+    CreateOctaveTranspositionHandler,
     DeleteContextHandler,
 )
 from piano_app.domain.score.document.services.mutation.engine.handlers.material import (
@@ -41,6 +45,7 @@ from piano_app.domain.score.document.services.mutation.engine.handlers.material 
     DeleteNoteHandler,
     DeleteRestCarrierHandler,
     DeleteRestHandler,
+    UpdateStemHandler,
 )
 from piano_app.domain.score.document.services.mutation.engine.handlers.relations import (
     CreateTieHandler,
@@ -48,6 +53,7 @@ from piano_app.domain.score.document.services.mutation.engine.handlers.relations
 )
 from piano_app.domain.score.document.services.mutation.engine.handlers.rhythmic import (
     CreateLeafHandler,
+    CreateRhythmicGroupHandler,
     DeleteLeafHandler,
     DeleteRhythmicGroupHandler,
 )
@@ -67,6 +73,7 @@ from piano_app.domain.score.document.services.mutation.engine.registry import (
 from piano_app.domain.score.document.services.mutation.instructions.actions.context import (
     CreateClefChangeAction,
     CreateKeySignatureChangeAction,
+    CreateOctaveTranspositionAction,
     DeleteContextAction,
 )
 from piano_app.domain.score.document.services.mutation.instructions.actions.material import (
@@ -78,6 +85,7 @@ from piano_app.domain.score.document.services.mutation.instructions.actions.mate
     DeleteNoteCarrierAction,
     DeleteRestAction,
     DeleteRestCarrierAction,
+    UpdateStemAction,
 )
 from piano_app.domain.score.document.services.mutation.instructions.actions.relations import (
     CreateTieAction,
@@ -85,6 +93,7 @@ from piano_app.domain.score.document.services.mutation.instructions.actions.rela
 )
 from piano_app.domain.score.document.services.mutation.instructions.actions.rhythmic import (
     CreateLeafAction,
+    CreateRhythmicGroupAction,
     DeleteLeafAction,
     DeleteRhythmicGroupAction,
 )
@@ -95,6 +104,7 @@ from piano_app.domain.score.document.services.mutation.instructions.actions.temp
 from piano_app.domain.score.document.services.mutation.instructions.requests.context import (
     CreateClefChangeRequest,
     CreateKeySignatureChangeRequest,
+    CreateOctaveTranspositionRequest,
     DeleteContextRequest,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.material import (
@@ -106,6 +116,7 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.mat
     DeleteNoteRequest,
     DeleteRestCarrierRequest,
     DeleteRestRequest,
+    UpdateStemRequest,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.relations import (
     CreateTieRequest,
@@ -113,6 +124,7 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.rel
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.rhythmic import (
     CreateLeafRequest,
+    CreateRhythmicGroupRequest,
     DeleteLeafRequest,
     DeleteRhythmicGroupRequest,
 )
@@ -138,6 +150,10 @@ def _build_analyzer_registry() -> MutationAnalyzerRegistry:
     registry.register(request_type=CreateLeafRequest, analyzer=CreateLeafAnalyzer())
     registry.register(request_type=DeleteLeafRequest, analyzer=DeleteLeafAnalyzer())
     registry.register(
+        request_type=CreateRhythmicGroupRequest,
+        analyzer=CreateRhythmicGroupAnalyzer(),
+    )
+    registry.register(
         request_type=DeleteRhythmicGroupRequest,
         analyzer=DeleteRhythmicGroupAnalyzer(),
     )
@@ -154,7 +170,12 @@ def _build_analyzer_registry() -> MutationAnalyzerRegistry:
         request_type=CreateKeySignatureChangeRequest,
         analyzer=CreateKeySignatureChangeAnalyzer(),
     )
+    registry.register(
+        request_type=CreateOctaveTranspositionRequest,
+        analyzer=CreateOctaveTranspositionAnalyzer(),
+    )
     registry.register(request_type=DeleteContextRequest, analyzer=DeleteContextAnalyzer())
+    registry.register(request_type=UpdateStemRequest, analyzer=UpdateStemAnalyzer())
 
     return registry
 
@@ -174,6 +195,7 @@ def _build_handler_registry() -> MutationHandlerRegistry:
     registry.register(action_type=DeleteRelationAction, handler=DeleteRelationHandler())
     registry.register(action_type=CreateLeafAction, handler=CreateLeafHandler())
     registry.register(action_type=DeleteLeafAction, handler=DeleteLeafHandler())
+    registry.register(action_type=CreateRhythmicGroupAction, handler=CreateRhythmicGroupHandler())
     registry.register(action_type=DeleteRhythmicGroupAction, handler=DeleteRhythmicGroupHandler())
     registry.register(action_type=CreateTemporalAnchorAction, handler=CreateTemporalAnchorHandler())
     registry.register(action_type=DeleteTemporalAnchorAction, handler=DeleteTemporalAnchorHandler())
@@ -182,13 +204,21 @@ def _build_handler_registry() -> MutationHandlerRegistry:
         action_type=CreateKeySignatureChangeAction,
         handler=CreateKeySignatureChangeHandler(),
     )
+    registry.register(
+        action_type=CreateOctaveTranspositionAction,
+        handler=CreateOctaveTranspositionHandler(),
+    )
     registry.register(action_type=DeleteContextAction, handler=DeleteContextHandler())
+    registry.register(action_type=UpdateStemAction, handler=UpdateStemHandler())
 
     return registry
 
 
 def _build_postprocessors() -> list[MutatedStatePostprocessor]:
-    return [FillGapsPostprocessor(), CleanupPostprocessor()]
+    return [
+        FillGapsPostprocessor(),
+        CleanupPostprocessor(),
+    ]
 
 
 def build_engine() -> MutationEngine:
