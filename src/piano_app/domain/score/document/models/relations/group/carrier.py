@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -40,7 +41,7 @@ class CarrierGroupRelation(GroupRelation["Carrier"]):
             raise ValueError("Cannot remove carrier without invalidating its group relation.")
 
         carrier.remove_carrier_group_relation(relation=self, sink=sink)
-        sink.list_remove(self._members, carrier)
+        sink.list_remove(self, "_members", carrier)
 
     def can_remove_carrier(self, *, carrier: Carrier) -> bool:
         if carrier not in self._members:
@@ -51,15 +52,6 @@ class CarrierGroupRelation(GroupRelation["Carrier"]):
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class Beam(CarrierGroupRelation):
-    def _check_members(self) -> None:
-        super()._check_members()
-
-        if len(self._members) < 2:
-            raise ValueError("Beam must contain at least two carriers.")
-
-        for carrier in self._members:
-            self._validate_available_carrier(carrier=carrier)
-
     @classmethod
     def create(
         cls,
@@ -91,12 +83,35 @@ class Beam(CarrierGroupRelation):
 
         super().attach(sink=sink)
 
+    def narrow_to(
+        self,
+        *,
+        carriers: Sequence[Carrier],
+        sink: MutationSink = DIRECT_SINK,
+    ) -> None:
+        """Keep only ``carriers``, a run of at least two consecutive members; the others
+        leave the beam."""
+        if len(carriers) < 2:
+            raise ValueError("Beam must contain at least two carriers.")
+
+        start: int = next(
+            (index for index, member in enumerate(self._members) if member is carriers[0]),
+            -1,
+        )
+
+        if start < 0 or self._members[start : start + len(carriers)] != list(carriers):
+            raise ValueError("A beam is narrowed only to a run of its consecutive members.")
+
+        leaving: list[Carrier] = [member for member in self._members if member not in carriers]
+        for carrier in leaving:
+            carrier.remove_carrier_group_relation(relation=self, sink=sink)
+            sink.list_remove(self, "_members", carrier)
+
     def can_remove_carrier(self, *, carrier: Carrier) -> bool:
         if carrier not in self._members:
             raise ValueError("Carrier is not a member of this beam.")
 
-        is_edge: bool = carrier is self._members[0] or carrier is self._members[-1]
-        return len(self._members) > 2 and is_edge
+        return len(self._members) > 2
 
     def _validate_available_carrier(self, *, carrier: Carrier) -> None:
         if any(
