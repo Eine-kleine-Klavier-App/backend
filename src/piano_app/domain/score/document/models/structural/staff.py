@@ -35,7 +35,7 @@ class Staff(ScoreEntity):
         if musical_item in self._musical_items:
             return
 
-        sink.list_append(self._musical_items, musical_item)
+        sink.list_append(self, "_musical_items", musical_item)
 
     def remove_musical_item(
         self,
@@ -49,7 +49,7 @@ class Staff(ScoreEntity):
         if musical_item not in self._musical_items:
             return
 
-        sink.list_remove(self._musical_items, musical_item)
+        sink.list_remove(self, "_musical_items", musical_item)
 
     def add_context(
         self,
@@ -66,7 +66,7 @@ class Staff(ScoreEntity):
         # ordered insertion
         index: int = sum(1 for existing in self._contexts if existing.precedes(context))
 
-        sink.list_insert(self._contexts, index, context)
+        sink.list_insert(self, "_contexts", index, context)
 
     def remove_context(
         self,
@@ -80,4 +80,4 @@ class Staff(ScoreEntity):
         if context not in self._contexts:
             return
 
-        sink.list_remove(self._contexts, context)
+        sink.list_remove(self, "_contexts", context)

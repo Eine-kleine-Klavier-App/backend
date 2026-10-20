@@ -10,11 +10,11 @@ class MutationSink(Protocol):
 
     def set_field(self, target: object, field_name: str, value: object) -> None: ...
 
-    def list_append(self, target: list[Any], item: Any) -> None: ...
+    def list_append(self, owner: object, field_name: str, item: Any) -> None: ...
 
-    def list_insert(self, target: list[Any], index: int, item: Any) -> None: ...
+    def list_insert(self, owner: object, field_name: str, index: int, item: Any) -> None: ...
 
-    def list_remove(self, target: list[Any], item: Any) -> None: ...
+    def list_remove(self, owner: object, field_name: str, item: Any) -> None: ...
 
 
 class _DirectMutationSink:
@@ -23,14 +23,14 @@ class _DirectMutationSink:
     def set_field(self, target: object, field_name: str, value: object) -> None:
         setattr(target, field_name, value)
 
-    def list_append(self, target: list[Any], item: Any) -> None:
-        target.append(item)
+    def list_append(self, owner: object, field_name: str, item: Any) -> None:
+        getattr(owner, field_name).append(item)
 
-    def list_insert(self, target: list[Any], index: int, item: Any) -> None:
-        target.insert(index, item)
+    def list_insert(self, owner: object, field_name: str, index: int, item: Any) -> None:
+        getattr(owner, field_name).insert(index, item)
 
-    def list_remove(self, target: list[Any], item: Any) -> None:
-        target.remove(item)
+    def list_remove(self, owner: object, field_name: str, item: Any) -> None:
+        getattr(owner, field_name).remove(item)
 
 
 DIRECT_SINK: MutationSink = _DirectMutationSink()

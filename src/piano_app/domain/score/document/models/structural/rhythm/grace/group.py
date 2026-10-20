@@ -90,10 +90,19 @@ class GraceGroup(ScoreEntity):
         else:
             self._leaf.detach_grace_group_after(grace_group=self, sink=sink)
 
+    def set_grace_type(
+        self,
+        *,
+        grace_type: GraceType,
+        sink: MutationSink = DIRECT_SINK,
+    ) -> None:
+        sink.set_field(self, "grace_type", grace_type)
+
     def add_grace_item(
         self,
         *,
         grace_item: GraceItem,
+        index: int | None = None,
         sink: MutationSink = DIRECT_SINK,
     ) -> None:
         if grace_item.grace_group is not self:
@@ -102,7 +111,14 @@ class GraceGroup(ScoreEntity):
         if grace_item in self._grace_items:
             return
 
-        sink.list_append(self._grace_items, grace_item)
+        if index is None:
+            sink.list_append(self, "_grace_items", grace_item)
+            return
+
+        if not 0 <= index <= len(self._grace_items):
+            raise ValueError("A grace item can only be put inside the group or at its end.")
+
+        sink.list_insert(self, "_grace_items", index, grace_item)
 
     def remove_grace_item(
         self,
@@ -116,4 +132,4 @@ class GraceGroup(ScoreEntity):
         if grace_item not in self._grace_items:
             return
 
-        sink.list_remove(self._grace_items, grace_item)
+        sink.list_remove(self, "_grace_items", grace_item)

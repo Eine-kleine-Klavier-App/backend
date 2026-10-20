@@ -33,6 +33,17 @@ class RhythmicContainer(ScoreEntity):
     def precedes(self, other: RhythmicContainer) -> bool:
         return self.start_anchor.precedes(other.start_anchor)
 
+    def is_ancestor_of(self, other: RhythmicContainer) -> bool:
+        """Whether ``other`` lies inside this container, at any depth."""
+        parent: RhythmicContainerParent = other.parent
+        while isinstance(parent, RhythmicContainer):
+            if parent is self:
+                return True
+
+            parent = parent.parent
+
+        return False
+
     def attach(
         self,
         *,

@@ -22,14 +22,23 @@ class NoteToNoteRelation(StartEndRelation["Note"]):
         self.start.remove_relation(relation=self, sink=sink)
         self.end.remove_relation(relation=self, sink=sink)
 
+    def set_start(self, *, start_note: Note, sink: MutationSink = DIRECT_SINK) -> None:
+        """Move the relation's start to another note, keeping the relation itself."""
+        if start_note is self.end:
+            raise ValueError("Start and end must be different entities.")
+
+        self.start.remove_relation(relation=self, sink=sink)
+        sink.set_field(self, "_start", start_note)
+        start_note.add_relation(relation=self, sink=sink)
+
 
 @dataclass(slots=True, kw_only=True, eq=False)
 class Tie(NoteToNoteRelation):
-    def _validate_available_notes(self) -> None:
+    def _validate_available_notes(self, *, start_note: Note) -> None:
         if any(
             isinstance(relation, Tie)
-            for relation in self.start.relations
-            if relation is not self and relation.start is self.start
+            for relation in start_note.relations
+            if relation is not self and relation.start is start_note
         ):
             raise ValueError("Note already starts another tie.")
 
@@ -49,7 +58,7 @@ class Tie(NoteToNoteRelation):
         sink: MutationSink = DIRECT_SINK,
     ) -> Tie:
         relation: Tie = cls(_start=start_note, _end=end_note)
-        relation._validate_available_notes()
+        relation._validate_available_notes(start_note=start_note)
 
         relation.attach(sink=sink)
         return relation
@@ -64,14 +73,18 @@ class Tie(NoteToNoteRelation):
         sink: MutationSink = DIRECT_SINK,
     ) -> Tie:
         relation: Tie = cls(id=id, _start=start_note, _end=end_note)
-        relation._validate_available_notes()
+        relation._validate_available_notes(start_note=start_note)
 
         relation.attach(sink=sink)
         return relation
 
     def attach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
-        self._validate_available_notes()
+        self._validate_available_notes(start_note=self.start)
         super().attach(sink=sink)
+
+    def set_start(self, *, start_note: Note, sink: MutationSink = DIRECT_SINK) -> None:
+        self._validate_available_notes(start_note=start_note)
+        super().set_start(start_note=start_note, sink=sink)
 
 
 @dataclass(slots=True, kw_only=True, eq=False)
@@ -92,6 +105,26 @@ class Glissando(NoteToNoteRelation):
         sink: MutationSink = DIRECT_SINK,
     ) -> Glissando:
         relation: Glissando = cls(
+            _start=start_note,
+            _end=end_note,
+            _glissando_type=glissando_type,
+        )
+
+        relation.attach(sink=sink)
+        return relation
+
+    @classmethod
+    def reconstruct(
+        cls,
+        *,
+        id: str,
+        start_note: Note,
+        end_note: Note,
+        glissando_type: GlissandoType,
+        sink: MutationSink = DIRECT_SINK,
+    ) -> Glissando:
+        relation: Glissando = cls(
+            id=id,
             _start=start_note,
             _end=end_note,
             _glissando_type=glissando_type,

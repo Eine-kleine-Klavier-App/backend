@@ -18,6 +18,12 @@ class MusicalItem(ScoreEntity):
     def staff(self) -> Staff:
         return self._staff
 
+    def set_staff(self, *, staff: Staff, sink: MutationSink = DIRECT_SINK) -> None:
+        """Move the item to another staff, keeping the item itself."""
+        self._staff.remove_musical_item(musical_item=self, sink=sink)
+        sink.set_field(self, "_staff", staff)
+        staff.add_musical_item(musical_item=self, sink=sink)
+
     def attach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
         self._staff.add_musical_item(musical_item=self, sink=sink)
 
