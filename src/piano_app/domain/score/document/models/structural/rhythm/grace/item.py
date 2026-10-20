@@ -32,6 +32,7 @@ class GraceItem(ScoreEntity):
         *,
         grace_group: GraceGroup,
         rhythmic_value: DottedRhythmicValue,
+        index: int | None = None,
         sink: MutationSink = DIRECT_SINK,
     ) -> GraceItem:
         grace_item: GraceItem = cls(
@@ -39,7 +40,7 @@ class GraceItem(ScoreEntity):
             _grace_group=grace_group,
         )
 
-        grace_item.attach(sink=sink)
+        grace_item.attach(index=index, sink=sink)
         return grace_item
 
     @classmethod
@@ -60,8 +61,16 @@ class GraceItem(ScoreEntity):
         grace_item.attach(sink=sink)
         return grace_item
 
-    def attach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
-        self._grace_group.add_grace_item(grace_item=self, sink=sink)
+    def set_rhythmic_value(
+        self,
+        *,
+        rhythmic_value: DottedRhythmicValue,
+        sink: MutationSink = DIRECT_SINK,
+    ) -> None:
+        sink.set_field(self, "rhythmic_value", rhythmic_value)
+
+    def attach(self, *, index: int | None = None, sink: MutationSink = DIRECT_SINK) -> None:
+        self._grace_group.add_grace_item(grace_item=self, index=index, sink=sink)
 
     def detach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
         self._grace_group.remove_grace_item(grace_item=self, sink=sink)

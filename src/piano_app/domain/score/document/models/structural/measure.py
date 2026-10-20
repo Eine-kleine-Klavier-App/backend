@@ -71,6 +71,25 @@ class Measure(ScoreEntity):
     def set_prev(self, *, prev_measure: Measure | None, sink: MutationSink = DIRECT_SINK) -> None:
         sink.set_field(self, "_prev_measure", prev_measure)
 
+    def set_time_signature(
+        self,
+        *,
+        time_signature: RhythmicSize,
+        sink: MutationSink = DIRECT_SINK,
+    ) -> None:
+        """Give the measure another time signature.
+
+        Every anchor in it must still lie inside it under the new length (``holds``), so a
+        shorter signature is refused while an anchor stands at or past its end.
+        """
+        if any(anchor.position.value >= time_signature.fraction for anchor in self._anchors):
+            raise ValueError(
+                f"An anchor lies at or beyond the end of the measure under the time signature "
+                f"of length {time_signature.fraction}."
+            )
+
+        sink.set_field(self, "_time_signature", time_signature)
+
     def holds(self, *, position: MeasurePosition) -> bool:
         """Whether a position falls inside this measure — at or past its end it does not."""
         return position.value < self.time_signature.fraction
@@ -109,7 +128,7 @@ class Measure(ScoreEntity):
         # ordered insertion
         index: int = sum(1 for existing in self._anchors if existing.precedes(anchor))
 
-        sink.list_insert(self._anchors, index, anchor)
+        sink.list_insert(self, "_anchors", index, anchor)
 
     def remove_anchor(
         self,
@@ -123,4 +142,4 @@ class Measure(ScoreEntity):
         if anchor not in self._anchors:
             return
 
-        sink.list_remove(self._anchors, anchor)
+        sink.list_remove(self, "_anchors", anchor)

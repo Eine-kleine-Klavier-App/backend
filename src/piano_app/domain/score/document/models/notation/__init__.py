@@ -1,6 +1,11 @@
-from .accidental import Accidental, KeySignatureAccidental
-from .arpeggio_type import ArpeggioType
-from .articulation import Articulation
+from .accidental import Accidental
+from .articulation import (
+    ARTICULATION_CATEGORIES,
+    Articulation,
+    ArticulationCategory,
+    check_articulations,
+    with_articulation,
+)
 from .clef import Clef
 from .dynamic_marking import DynamicMarking
 from .fingering import Fingering
@@ -8,15 +13,16 @@ from .glissando_type import GlissandoType
 from .grace_placement import GracePlacement
 from .grace_type import GraceType
 from .hairpin_type import HairpinType
-from .pitch import Pitch
+from .ornament import Ornament
 from .rhythmic_value import DottedRhythmicValue, RhythmicSize, RhythmicValue
-from .stem import StemDirection, StemOverride
+from .stem import StemDirection
 from .tempo_marking import TempoMarking
 
 __all__ = (
+    "ARTICULATION_CATEGORIES",
     "Accidental",
-    "ArpeggioType",
     "Articulation",
+    "ArticulationCategory",
     "Clef",
     "DottedRhythmicValue",
     "DynamicMarking",
@@ -25,11 +31,11 @@ __all__ = (
     "GracePlacement",
     "GraceType",
     "HairpinType",
-    "KeySignatureAccidental",
-    "Pitch",
+    "Ornament",
     "RhythmicSize",
     "RhythmicValue",
     "StemDirection",
-    "StemOverride",
     "TempoMarking",
+    "check_articulations",
+    "with_articulation",
 )

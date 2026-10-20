@@ -94,6 +94,16 @@ class Note(MusicalItem):
         note.attach(sink=sink)
         return note
 
+    def set_fingering(self, *, fingering: Fingering, sink: MutationSink = DIRECT_SINK) -> None:
+        sink.set_field(self, "_fingering", fingering)
+
+    def set_accidental(self, *, accidental: Accidental, sink: MutationSink = DIRECT_SINK) -> None:
+        sink.set_field(self, "_accidental", accidental)
+
+    def set_staff_step(self, *, staff_step: int, sink: MutationSink = DIRECT_SINK) -> None:
+        """Move the note to another place on its staff, which changes what it sounds."""
+        sink.set_field(self, "_staff_step", staff_step)
+
     def attach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
         super().attach(sink=sink)
         self._note_carrier.add_note(note=self, sink=sink)
@@ -114,7 +124,7 @@ class Note(MusicalItem):
         if relation in self._relations:
             return
 
-        sink.list_append(self._relations, relation)
+        sink.list_append(self, "_relations", relation)
 
     def remove_relation(
         self,
@@ -128,4 +138,4 @@ class Note(MusicalItem):
         if relation not in self._relations:
             return
 
-        sink.list_remove(self._relations, relation)
+        sink.list_remove(self, "_relations", relation)

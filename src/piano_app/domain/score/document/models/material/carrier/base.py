@@ -61,7 +61,7 @@ class Carrier(ScoreEntity):
         if relation in self._carrier_group_relations:
             return
 
-        sink.list_append(self._carrier_group_relations, relation)
+        sink.list_append(self, "_carrier_group_relations", relation)
 
     def remove_carrier_group_relation(
         self,
@@ -75,4 +75,4 @@ class Carrier(ScoreEntity):
         if relation not in self._carrier_group_relations:
             return
 
-        sink.list_remove(self._carrier_group_relations, relation)
+        sink.list_remove(self, "_carrier_group_relations", relation)

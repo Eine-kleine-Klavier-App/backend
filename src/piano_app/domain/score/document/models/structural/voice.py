@@ -45,7 +45,7 @@ class Voice(ScoreEntity):
         # ordered insertion
         index: int = sum(1 for existing in self._children if existing.precedes(child))
 
-        sink.list_insert(self._children, index, child)
+        sink.list_insert(self, "_children", index, child)
 
     def remove_child(
         self,
@@ -60,7 +60,7 @@ class Voice(ScoreEntity):
         if child not in self._children:
             return
 
-        sink.list_remove(self._children, child)
+        sink.list_remove(self, "_children", child)
 
     def add_context(
         self,
@@ -77,7 +77,7 @@ class Voice(ScoreEntity):
         # ordered insertion
         index: int = sum(1 for existing in self._contexts if existing.precedes(context))
 
-        sink.list_insert(self._contexts, index, context)
+        sink.list_insert(self, "_contexts", index, context)
 
     def remove_context(
         self,
@@ -91,4 +91,4 @@ class Voice(ScoreEntity):
         if context not in self._contexts:
             return
 
-        sink.list_remove(self._contexts, context)
+        sink.list_remove(self, "_contexts", context)

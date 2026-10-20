@@ -75,6 +75,19 @@ class LeafRhythmicContainer(RhythmicContainer):
         leaf.attach(sink=sink)
         return leaf
 
+    def set_size(
+        self,
+        *,
+        size: RhythmicSize,
+        sink: MutationSink = DIRECT_SINK,
+    ) -> None:
+        """Resize the leaf in place; a leaf sounds exactly as long as it is written.
+
+        Whether the new room is free in its scope is decided by whoever resizes it.
+        """
+        sink.set_field(self, "written_size", size)
+        sink.set_field(self, "occupied_size", size)
+
     def attach_carrier(
         self,
         *,
