@@ -11,29 +11,49 @@ if TYPE_CHECKING:
     from piano_app.domain.score.document.models.structural import TemporalAnchor, Voice
 
 
+def _check_steps(*, steps: int) -> None:
+    if steps == 0:
+        raise ValueError("A hairpin must change the dynamic by at least one level.")
+
+
 @dataclass(kw_only=True, eq=False)
 class Hairpin(VoicesScoped, SpanContext):
-    _hairpin_type: HairpinType
+    _steps: int
+
+    @property
+    def steps(self) -> int:
+        """Dynamic levels from the level in force at the start to the end: above zero is a
+        crescendo, below zero a diminuendo."""
+        return self._steps
 
     @property
     def hairpin_type(self) -> HairpinType:
-        return self._hairpin_type
+        return HairpinType.CRESCENDO if self._steps > 0 else HairpinType.DIMINUENDO
+
+    def _check_invariants(self) -> None:
+        super()._check_invariants()
+        _check_steps(steps=self._steps)
+
+    def set_steps(self, *, steps: int, sink: MutationSink = DIRECT_SINK) -> None:
+        """Change by how many dynamic levels the hairpin moves, keeping the hairpin itself."""
+        _check_steps(steps=steps)
+        sink.set_field(self, "_steps", steps)
 
     @classmethod
     def create(
         cls,
         *,
         start: TemporalAnchor,
-        end: TemporalAnchor,
+        end: TemporalAnchor | None,
         voices: list[Voice],
-        hairpin_type: HairpinType,
+        steps: int,
         sink: MutationSink = DIRECT_SINK,
     ) -> Hairpin:
         hairpin = cls(
             _start=start,
             _end=end,
             _voices=voices,
-            _hairpin_type=hairpin_type,
+            _steps=steps,
         )
 
         hairpin.attach(sink=sink)
@@ -45,9 +65,9 @@ class Hairpin(VoicesScoped, SpanContext):
         *,
         id: str,
         start: TemporalAnchor,
-        end: TemporalAnchor,
+        end: TemporalAnchor | None,
         voices: list[Voice],
-        hairpin_type: HairpinType,
+        steps: int,
         sink: MutationSink = DIRECT_SINK,
     ) -> Hairpin:
         hairpin = cls(
@@ -55,7 +75,7 @@ class Hairpin(VoicesScoped, SpanContext):
             _start=start,
             _end=end,
             _voices=voices,
-            _hairpin_type=hairpin_type,
+            _steps=steps,
         )
 
         hairpin.attach(sink=sink)
@@ -69,7 +89,7 @@ class Slur(VoicesScoped, SpanContext):
         cls,
         *,
         start: TemporalAnchor,
-        end: TemporalAnchor,
+        end: TemporalAnchor | None,
         voices: list[Voice],
         sink: MutationSink = DIRECT_SINK,
     ) -> Slur:
@@ -84,7 +104,7 @@ class Slur(VoicesScoped, SpanContext):
         *,
         id: str,
         start: TemporalAnchor,
-        end: TemporalAnchor,
+        end: TemporalAnchor | None,
         voices: list[Voice],
         sink: MutationSink = DIRECT_SINK,
     ) -> Slur:

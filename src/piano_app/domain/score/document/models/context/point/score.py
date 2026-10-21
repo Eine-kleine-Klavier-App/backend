@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from piano_app.domain.score.document.models.mutation_sink import DIRECT_SINK, MutationSink
-from piano_app.domain.score.document.models.notation import TempoMarking
+from piano_app.domain.score.document.models.notation import DottedRhythmicValue, TempoMarking
 
 from .base import PointContext
 
@@ -12,43 +12,53 @@ if TYPE_CHECKING:
 
 @dataclass(kw_only=True, eq=False)
 class TempoChange(PointContext):
-    """A tempo assertion — a metronome mark, a word marking, or both.
+    """A tempo assertion: ``bpm`` beats of ``beat`` per minute.
 
-    Both are optional individually (a score may show only "Allegro" with no BPM, or
-    only "♩ = 120" with no word marking) but not both absent — that would assert
-    nothing. Score-scoped — no scope mixin, extends PointContext directly.
+    The optional word is derived from the numeric tempo, normalized to quarter notes.
+    Score-scoped — no scope mixin, extends PointContext directly.
     """
 
-    _bpm: int | None = None
-    _marking: TempoMarking | None = None
+    _beat: DottedRhythmicValue
+    _bpm: int
+    _show_label: bool = False
 
     @property
-    def bpm(self) -> int | None:
+    def beat(self) -> DottedRhythmicValue:
+        return self._beat
+
+    @property
+    def bpm(self) -> int:
         return self._bpm
 
     @property
-    def marking(self) -> TempoMarking | None:
-        return self._marking
+    def label(self) -> TempoMarking | None:
+        return (
+            TempoMarking.for_bpm(quarter_bpm=self.beat.fraction * 4 * self.bpm)
+            if self.show_label
+            else None
+        )
+
+    @property
+    def show_label(self) -> bool:
+        return self._show_label
 
     def _check_invariants(self) -> None:
         super()._check_invariants()
 
-        if self._bpm is not None and self._bpm < 1:
-            raise ValueError("Tempo must be at least 1 BPM.")
-
-        if self._bpm is None and self._marking is None:
-            raise ValueError("Tempo change must give a BPM, a marking, or both.")
+        if self._bpm < 1:
+            raise ValueError("Tempo must be at least 1 beat per minute.")
 
     @classmethod
     def create(
         cls,
         *,
         start: TemporalAnchor,
-        bpm: int | None = None,
-        marking: TempoMarking | None = None,
+        beat: DottedRhythmicValue,
+        bpm: int,
+        show_label: bool = False,
         sink: MutationSink = DIRECT_SINK,
     ) -> TempoChange:
-        tempo_change = cls(_start=start, _bpm=bpm, _marking=marking)
+        tempo_change = cls(_start=start, _beat=beat, _bpm=bpm, _show_label=show_label)
 
         tempo_change.attach(sink=sink)
         return tempo_change
@@ -59,11 +69,12 @@ class TempoChange(PointContext):
         *,
         id: str,
         start: TemporalAnchor,
-        bpm: int | None = None,
-        marking: TempoMarking | None = None,
+        beat: DottedRhythmicValue,
+        bpm: int,
+        show_label: bool = False,
         sink: MutationSink = DIRECT_SINK,
     ) -> TempoChange:
-        tempo_change = cls(id=id, _start=start, _bpm=bpm, _marking=marking)
+        tempo_change = cls(id=id, _start=start, _beat=beat, _bpm=bpm, _show_label=show_label)
 
         tempo_change.attach(sink=sink)
         return tempo_change
