@@ -1,11 +1,18 @@
 from .base import Context
 from .point import (
+    KEY_SIGNATURE_ACCIDENTALS,
+    KEY_SIGNATURE_STEPS,
+    NO_ACCIDENTALS,
     ClefChange,
     DynamicChange,
+    JumpRule,
     KeySignatureChange,
-    KeySignatureSymbol,
+    NewFragment,
     PointContext,
+    Refrain,
     TempoChange,
+    Volta,
+    VoltaFragment,
 )
 from .scope import StaffScoped, VoicesScoped
 from .span import (
@@ -14,21 +21,30 @@ from .span import (
     Slur,
     SpanContext,
     SustainHold,
+    TempoTransition,
 )
 
 __all__ = (
+    "KEY_SIGNATURE_ACCIDENTALS",
+    "KEY_SIGNATURE_STEPS",
+    "NO_ACCIDENTALS",
     "ClefChange",
     "Context",
     "DynamicChange",
     "Hairpin",
+    "JumpRule",
     "KeySignatureChange",
-    "KeySignatureSymbol",
+    "NewFragment",
     "OctaveTransposition",
     "PointContext",
+    "Refrain",
     "Slur",
     "SpanContext",
     "StaffScoped",
     "SustainHold",
     "TempoChange",
+    "TempoTransition",
     "VoicesScoped",
+    "Volta",
+    "VoltaFragment",
 )

@@ -43,3 +43,21 @@ class VoicesScoped(Context):
         for voice in self.voices:
             voice.remove_context(context=self, sink=sink)
         super().detach(sink=sink)
+
+    def set_voices(self, *, voices: list[Voice], sink: MutationSink = DIRECT_SINK) -> None:
+        """Change the voices the context applies to, keeping the context itself."""
+        if not voices:
+            raise ValueError("Voices scope must contain at least one voice.")
+
+        if len(voices) != len(set(voices)):
+            raise ValueError("Voices scope must not repeat a voice.")
+
+        for voice in self._voices:
+            if voice not in voices:
+                voice.remove_context(context=self, sink=sink)
+
+        previous: list[Voice] = self._voices
+        sink.set_field(self, "_voices", voices)
+        for voice in voices:
+            if voice not in previous:
+                voice.add_context(context=self, sink=sink)
