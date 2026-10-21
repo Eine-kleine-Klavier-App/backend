@@ -33,3 +33,13 @@ class Context(ScoreEntity):
 
     def detach(self, *, sink: MutationSink = DIRECT_SINK) -> None:
         self.start.remove_starting_context(context=self, sink=sink)
+
+    def set_start(self, *, start: TemporalAnchor, sink: MutationSink = DIRECT_SINK) -> None:
+        """Move the context's start to another anchor, keeping the context itself.
+
+        Detached and attached again around the change, so every index ordered by the
+        start sees it at its new place.
+        """
+        self.detach(sink=sink)
+        sink.set_field(self, "_start", start)
+        self.attach(sink=sink)

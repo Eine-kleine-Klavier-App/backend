@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from piano_app.domain.score.document.models.mutation_sink import DIRECT_SINK, MutationSink
-from piano_app.domain.score.document.models.notation import Clef, KeySignatureAccidental
+from piano_app.domain.score.document.models.notation import Accidental, Clef
 
 from ..scope import StaffScoped
 from .base import PointContext
@@ -67,26 +67,35 @@ class ClefChange(StaffScoped, PointContext):
         return clef_change
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class KeySignatureSymbol:
-    staff_step: int
-    accidental: KeySignatureAccidental
+# one entry per diatonic step, in the order C D E F G A B
+KEY_SIGNATURE_STEPS: int = 7
+NO_ACCIDENTALS: tuple[Accidental, ...] = (Accidental.NATURAL,) * KEY_SIGNATURE_STEPS
+# a key signature has no double accidentals
+KEY_SIGNATURE_ACCIDENTALS: frozenset[Accidental] = frozenset(
+    {Accidental.FLAT, Accidental.NATURAL, Accidental.SHARP}
+)
 
 
 @dataclass(kw_only=True, eq=False)
 class KeySignatureChange(StaffScoped, PointContext):
-    _symbols: tuple[KeySignatureSymbol, ...] = ()
+    """A key signature: the accidental of each of the seven diatonic steps, independent of the
+    clef. Natural everywhere is the key signature of nothing."""
+
+    _alterations: tuple[Accidental, ...] = NO_ACCIDENTALS
 
     @property
-    def symbols(self) -> tuple[KeySignatureSymbol, ...]:
-        return self._symbols
+    def alterations(self) -> tuple[Accidental, ...]:
+        return self._alterations
 
     def _check_invariants(self) -> None:
         super()._check_invariants()
 
-        steps: list[int] = [symbol.staff_step for symbol in self._symbols]
-        if len(steps) != len(set(steps)):
-            raise ValueError("Key signature symbols must not repeat a staff step.")
+        if len(self._alterations) != KEY_SIGNATURE_STEPS:
+            raise ValueError(f"Key signature must give {KEY_SIGNATURE_STEPS} alterations.")
+
+        for alteration in self._alterations:
+            if alteration not in KEY_SIGNATURE_ACCIDENTALS:
+                raise ValueError("A key signature has no double accidentals.")
 
     @classmethod
     def create(
@@ -94,10 +103,10 @@ class KeySignatureChange(StaffScoped, PointContext):
         *,
         start: TemporalAnchor,
         staff: Staff,
-        symbols: tuple[KeySignatureSymbol, ...] = (),
+        alterations: tuple[Accidental, ...] = NO_ACCIDENTALS,
         sink: MutationSink = DIRECT_SINK,
     ) -> KeySignatureChange:
-        key_signature_change = cls(_start=start, _staff=staff, _symbols=symbols)
+        key_signature_change = cls(_start=start, _staff=staff, _alterations=alterations)
 
         key_signature_change.attach(sink=sink)
         return key_signature_change
@@ -109,10 +118,10 @@ class KeySignatureChange(StaffScoped, PointContext):
         id: str,
         start: TemporalAnchor,
         staff: Staff,
-        symbols: tuple[KeySignatureSymbol, ...] = (),
+        alterations: tuple[Accidental, ...] = NO_ACCIDENTALS,
         sink: MutationSink = DIRECT_SINK,
     ) -> KeySignatureChange:
-        key_signature_change = cls(id=id, _start=start, _staff=staff, _symbols=symbols)
+        key_signature_change = cls(id=id, _start=start, _staff=staff, _alterations=alterations)
 
         key_signature_change.attach(sink=sink)
         return key_signature_change
