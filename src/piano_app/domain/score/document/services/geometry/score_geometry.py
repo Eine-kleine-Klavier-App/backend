@@ -1,176 +1,46 @@
-from dataclasses import dataclass
+from collections.abc import Sequence
 from fractions import Fraction
 
+from piano_app.domain.score.document.models import ScoreDocument
+from piano_app.domain.score.document.models.context import SpanContext
 from piano_app.domain.score.document.models.structural import Measure, TemporalAnchor, Voice
 from piano_app.domain.score.document.models.structural.rhythm import (
     GroupRhythmicContainer,
+    LeafRhythmicContainer,
     RhythmicContainer,
     RhythmicContainerParent,
 )
+from piano_app.domain.score.document.services.indexing import Index
 
 from .coordinates import Point, Span
-from .frame import Frame
+from .frame import Frame, conversion
+from .occupancy import OccupancyIndex
 from .queries import Meeting, containing, footprint, meetings
+from .spaces import (
+    GroupFrame,
+    MeasureFrame,
+    ScoreFrame,
+    SpacesIndex,
+    frame_of_scope,
+    offset_in_parent,
+)
 from .transform import Transform
 
-# This module is the ONLY place in `geometry` that knows the score model exists.
-# Everything else works on frames alone, which is what keeps the mechanism testable
-# without a document and reusable for spaces we have not invented yet.
 
+class ScoreGeometry(Index):
+    """Reads the live score as frames, through an index of it.
 
-def _head_measure(*, measure: Measure) -> Measure:
-    """The first measure of the chain — the token that identifies one timeline.
-
-    Reachable from ANY measure, which is what lets an analyzer holding nothing but
-    its own measure build a bridge whose coordinates combine with everyone else's.
-    """
-    head: Measure = measure
-    while head.prev_measure is not None:
-        head = head.prev_measure
-
-    return head
-
-
-def _measure_origin(*, measure: Measure) -> Fraction:
-    """Where the measure begins on the global timeline — the sum of everything
-    before it. Measures shift, they never compress."""
-    total: Fraction = Fraction(0)
-
-    previous: Measure | None = measure.prev_measure
-    while previous is not None:
-        total += previous.time_signature.fraction
-        previous = previous.prev_measure
-
-    return total
-
-
-def _anchor_position(*, anchor: TemporalAnchor) -> Fraction:
-    return _measure_origin(measure=anchor.measure) + anchor.position.value
-
-
-def _offset_in_parent(*, container: RhythmicContainer, root: _ScoreFrame) -> Fraction:
-    """Where the container begins inside its parent frame: its own anchor, restated there.
-
-    One rule for a voice and a group. Never packed from the earlier siblings — in the
-    middle of a gesture a sibling may be missing, while the container's anchor is its
-    position regardless — and never stored, since the anchor is the only truth.
-    """
-    start: Point = Point(frame=root, value=_anchor_position(anchor=container.start_anchor))
-
-    return start.to(frame=_frame_of_scope(scope=container.parent, root=root)).value
-
-
-def _frame_of_scope(*, scope: RhythmicContainerParent, root: _ScoreFrame) -> Frame:
-    """The coordinate space a parent stands for.
-
-    The single place in the whole geometry stack that asks what kind of parent it is
-    looking at — translating a model shape into a frame is exactly this module's job,
-    and everything above it works on frames alone.
-    """
-    if isinstance(scope, GroupRhythmicContainer):
-        return _GroupFrame(source=scope, root=root)
-
-    # a voice owns a set of children but is not a coordinate space of its own — it
-    # starts nowhere and compresses nothing, so its containers sit directly on the
-    # score's timeline
-    if isinstance(scope, Voice):
-        return root
-
-    raise TypeError(f"Scope is not a voice or a group: {scope!r}")
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _ScoreFrame:
-    """The score's whole timeline as a coordinate space — the root every other frame
-    maps into, and the space a voice's containers sit in.
-
-    ``head`` does both of the root's jobs: it identifies the timeline (two roots over one
-    document are equal, so frames built by separate short-lived bridges combine, while
-    two documents are what ``UnreachableFrameError`` catches), and the length is read
-    from it — the timeline ends where the last measure does.
+    It is made of two indexes, the spaces and what occupies them, each built lazily, fragment
+    by fragment, and kept: after the model changes, call the ``invalidate_*`` method of what
+    changed, and the next read heals only what that dirtied. A read without it may answer for
+    the score as it was. The geometry may be held across an edit; the spans and points it
+    returns are snapshots and may not.
     """
 
-    head: Measure
-
-    @property
-    def parent(self) -> None:
-        return None
-
-    @property
-    def to_parent(self) -> Transform:
-        return Transform.identity()
-
-    @property
-    def extent(self) -> Fraction:
-        total: Fraction = Fraction(0)
-        measure: Measure | None = self.head
-        while measure is not None:
-            total += measure.time_signature.fraction
-            measure = measure.next_measure
-
-        return total
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _MeasureFrame:
-    """A measure as a coordinate space: the degenerate frame that shifts without
-    compressing."""
-
-    source: Measure
-    root: _ScoreFrame
-
-    @property
-    def parent(self) -> _ScoreFrame:
-        return self.root
-
-    @property
-    def to_parent(self) -> Transform:
-        return Transform.of_shift(offset=_measure_origin(measure=self.source))
-
-    @property
-    def extent(self) -> Fraction:
-        return self.source.time_signature.fraction
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _GroupFrame:
-    """A tuplet group as a coordinate space — its written interior, squeezed into the
-    room it occupies outside."""
-
-    source: GroupRhythmicContainer
-    root: _ScoreFrame
-
-    @property
-    def parent(self) -> Frame:
-        return _frame_of_scope(scope=self.source.parent, root=self.root)
-
-    @property
-    def to_parent(self) -> Transform:
-        return Transform.of_nesting(
-            written=self.source.written_size.fraction,
-            occupied=self.source.occupied_size.fraction,
-            offset=_offset_in_parent(container=self.source, root=self.root),
-        )
-
-    @property
-    def extent(self) -> Fraction:
-        return self.source.written_size.fraction
-
-
-class ScoreGeometry:
-    """Reads the live score as frames.
-
-    Stateless beyond the timeline it stands for: every coordinate is
-    derived on access, so nothing here can go stale while the engine mutates the
-    model mid-gesture.
-    """
-
-    def __init__(self, *, origin: Measure) -> None:
-        # keyed on the head of the chain, not on the document: an analyzer only ever
-        # holds a measure, and both routes must agree or their coordinates would not
-        # combine
-        self._head: Measure = _head_measure(measure=origin)
-        self._root: _ScoreFrame = _ScoreFrame(head=self._head)
+    def __init__(self, *, document: ScoreDocument) -> None:
+        self._spaces: SpacesIndex = SpacesIndex(document=document)
+        self._occupancy: OccupancyIndex = OccupancyIndex(spaces=self._spaces)
+        self._root: ScoreFrame = ScoreFrame(document=document, index=self._spaces)
 
     @property
     def root(self) -> Frame:
@@ -178,19 +48,18 @@ class ScoreGeometry:
         return self._root
 
     def of_measure(self, *, measure: Measure) -> Frame:
-        return _MeasureFrame(source=measure, root=self._root)
+        return MeasureFrame(source=measure, root=self._root)
 
     def of_group(self, *, group: GroupRhythmicContainer) -> Frame:
-        return _GroupFrame(source=group, root=self._root)
+        return GroupFrame(source=group, root=self._root)
 
     def of_scope(self, *, scope: RhythmicContainerParent) -> Frame:
         """The space a voice or a group stands for."""
-        return _frame_of_scope(scope=scope, root=self._root)
+        return frame_of_scope(scope=scope, root=self._root)
 
-    def containing_frame_of(self, *, container: RhythmicContainer) -> Frame:
-        """The space the container LIVES IN, its parent frame. A leaf has no
-        interior of its own, so this is the only frame it ever relates to."""
-        return _frame_of_scope(scope=container.parent, root=self._root)
+    def measure_span(self, *, measure: Measure) -> Span:
+        """The measure's room on the global timeline."""
+        return footprint(frame=self.of_measure(measure=measure))
 
     def span_of(self, *, container: RhythmicContainer) -> Span:
         """The room the container takes in its parent frame.
@@ -199,19 +68,26 @@ class ScoreGeometry:
         measures ``written_size`` — the two halves of being both a frame and placed.
         """
         return Span(
-            frame=_frame_of_scope(scope=container.parent, root=self._root),
-            start=_offset_in_parent(container=container, root=self._root),
+            frame=frame_of_scope(scope=container.parent, root=self._root),
+            start=offset_in_parent(container=container, root=self._root),
             length=container.occupied_size.fraction,
         )
 
     def global_span_of(self, *, container: RhythmicContainer) -> Span:
-        """The container's room on the global timeline — the one call that replaces
-        hand-assembling a parent-scope lookup with a walk up to the root."""
+        """The container's room on the global timeline."""
         return self.span_of(container=container).to(frame=self._root)
 
     def point_of(self, *, anchor: TemporalAnchor) -> Point:
         """An anchor's location on the global timeline."""
-        return Point(frame=self._root, value=_anchor_position(anchor=anchor))
+        return Point(frame=self._root, value=self._spaces.anchor_position(anchor=anchor))
+
+    def end_of(self, *, context: SpanContext) -> Point:
+        """Where a span context ends on the global timeline; a span without an end lasts until
+        the end of the score."""
+        if context.end is None:
+            return Point(frame=self._root, value=self._root.extent)
+
+        return self.point_of(anchor=context.end)
 
     def contents_of(
         self,
@@ -221,16 +97,25 @@ class ScoreGeometry:
         """What sits in a scope, ready to be handed to ``meetings`` / ``containing``."""
         return [(child, self.span_of(container=child)) for child in scope.children]
 
+    def contents_in(
+        self,
+        *,
+        scope: RhythmicContainerParent,
+        measure: Measure,
+    ) -> list[tuple[RhythmicContainer, Span]]:
+        """What of a scope reaches into one measure, in the form of ``contents_of``.
+
+        A child crossing a barline is listed in every measure it reaches; one ending
+        exactly on a barline is not listed in the measure after it.
+        """
+        return [
+            (child, self.span_of(container=child))
+            for child in self._occupancy.find_children_in(scope=scope, measure=measure)
+        ]
+
     def measure_regions(self) -> list[tuple[Measure, Span]]:
         """The measures as regions of the global timeline, in order."""
-        regions: list[tuple[Measure, Span]] = []
-
-        measure: Measure | None = self._head
-        while measure is not None:
-            regions.append((measure, footprint(frame=self.of_measure(measure=measure))))
-            measure = measure.next_measure
-
-        return regions
+        return [(measure, self.measure_span(measure=measure)) for measure in self._spaces.measures]
 
     def measure_at(self, *, point: Point) -> Measure | None:
         """Which measure holds the point, or ``None`` past the end of the score.
@@ -238,7 +123,7 @@ class ScoreGeometry:
         ``None`` rather than an error: running off the end is something the caller
         answers for (reject the edit, append a measure), not a geometric impossibility.
         """
-        return containing(point=point.to(frame=self._root), candidates=self.measure_regions())
+        return self._spaces.measure_at(value=point.to(frame=self._root).value)
 
     def slice_by_measures(self, *, span: Span) -> list[Meeting[Measure]]:
         """Cut a span at the barlines it crosses.
@@ -247,7 +132,12 @@ class ScoreGeometry:
         to do with more than one — tie them together, refuse the edit — is the
         caller's call, which is why this reports instead of rejecting.
         """
-        return meetings(span=span.to(frame=self._root), candidates=self.measure_regions())
+        regions: list[tuple[Measure, Span]] = [
+            (measure, self.measure_span(measure=measure))
+            for measure in self._measures_reached_by(span=span)
+        ]
+
+        return meetings(span=span.to(frame=self._root), candidates=regions)
 
     def intersecting(
         self,
@@ -256,7 +146,17 @@ class ScoreGeometry:
         scope: RhythmicContainerParent,
     ) -> list[Meeting[RhythmicContainer]]:
         """What already sits where the span wants to go."""
-        return meetings(span=span, candidates=self.contents_of(scope=scope))
+        # a child crossing a barline is listed in each measure it reaches
+        reached: dict[RhythmicContainer, None] = dict.fromkeys(
+            child
+            for measure in self._measures_reached_by(span=span)
+            for child in self._occupancy.find_children_in(scope=scope, measure=measure)
+        )
+
+        return meetings(
+            span=span,
+            candidates=[(child, self.span_of(container=child)) for child in reached],
+        )
 
     def deepest_scope_at(
         self,
@@ -273,17 +173,62 @@ class ScoreGeometry:
         """
         scope: RhythmicContainerParent = voice
         local: Point = point.to(frame=self._root)
+        measure: Measure | None = self._spaces.measure_at(value=local.value)
 
-        while True:
+        # a point on the timeline's far end lies in no measure, so in no group
+        while measure is not None:
             nested: list[tuple[GroupRhythmicContainer, Span]] = [
                 (child, self.span_of(container=child))
-                for child in scope.children
+                for child in self._occupancy.find_children_in(scope=scope, measure=measure)
                 if isinstance(child, GroupRhythmicContainer)
             ]
 
             entered: GroupRhythmicContainer | None = containing(point=local, candidates=nested)
             if entered is None:
-                return scope, local
+                break
 
             scope = entered
             local = local.to(frame=self.of_group(group=entered))
+
+        return scope, local
+
+    def invalidate_measures(self) -> None:
+        """A measure was created or deleted, or its time signature changed.
+
+        Every layout goes and heals per scope; measure-level edits are rare.
+        """
+        self._spaces.invalidate_measures()
+        self._occupancy.invalidate_measures()
+
+    def invalidate_anchor(self, *, anchor: TemporalAnchor) -> None:
+        """An anchor was created, deleted or moved — delivered after the change, so a move
+        to another measure reads the containers where they landed."""
+        self._occupancy.invalidate_anchor(anchor=anchor)
+
+    def invalidate_leaf(self, *, leaf: LeafRhythmicContainer) -> None:
+        """A leaf was created, deleted or resized — delivered after the change: a detached
+        leaf keeps its parent."""
+        self._occupancy.invalidate_leaf(leaf=leaf)
+
+    def invalidate_scope(self, *, scope: RhythmicContainerParent) -> None:
+        """A child was attached to or detached from the scope — delivered after the change.
+        Only the scope's own layout goes; what lies under a child is untouched."""
+        self._occupancy.invalidate_scope(scope=scope)
+
+    def invalidate_group(self, *, group: GroupRhythmicContainer) -> None:
+        """A group was created, deleted, resized or split — delivered after the change:
+        a detached group keeps its parent. Everything under it goes too, since its scale
+        reaches all of it."""
+        self._spaces.invalidate_group(group=group)
+        self._occupancy.invalidate_group(group=group)
+
+    def _measures_reached_by(self, *, span: Span) -> Sequence[Measure]:
+        """The measures a span reaches into. Restated without a containment check, so a
+        span overflowing its frame still reaches what lies inside the timeline."""
+        transform: Transform = conversion(source=span.frame, target=self._root)
+        start: Fraction = transform.apply_position(span.start)
+
+        return self._spaces.measures_between(
+            start=start,
+            end=start + transform.apply_length(span.length),
+        )
