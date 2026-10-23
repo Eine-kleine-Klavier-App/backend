@@ -1,13 +1,11 @@
-from piano_app.domain.score.document.models.context.scope.staff import StaffScoped
+from collections.abc import Sequence
+
+from piano_app.domain.score.document.models.material import Carrier
+from piano_app.domain.score.document.models.relations import Beam
 from piano_app.domain.score.document.models.structural import (
     Measure,
     MeasurePosition,
-    Staff,
     TemporalAnchor,
-)
-from piano_app.domain.score.document.models.structural.rhythm import (
-    RhythmicContainer,
-    RhythmicContainerParent,
 )
 
 # Slot lookup: what already sits at a given place in the model. Purely a question
@@ -27,47 +25,12 @@ def find_anchor_at(
     )
 
 
-def find_container_at(
-    *,
-    measure: Measure,
-    position: MeasurePosition,
-    scope: RhythmicContainerParent,
-) -> RhythmicContainer | None:
-    """The container — a leaf or a group — starting at this slot in this scope.
+def find_beams(*, carriers: Sequence[Carrier]) -> list[Beam]:
+    """The beams the carriers belong to, each once, in the order first met."""
+    beams: list[Beam] = []
+    for carrier in carriers:
+        for relation in carrier.carrier_group_relations:
+            if isinstance(relation, Beam) and not any(relation is beam for beam in beams):
+                beams.append(relation)
 
-    Nested containers starting at the same instant share the anchor but live in different
-    scopes, so only a direct child of the scope counts; within one scope siblings never
-    overlap, so there is at most one.
-    """
-    anchor: TemporalAnchor | None = find_anchor_at(measure=measure, position=position)
-    if anchor is None:
-        return None
-
-    containers: list[RhythmicContainer] = [
-        container for container in anchor.containers if container.parent is scope
-    ]
-    if len(containers) > 1:
-        raise ValueError(f"Multiple containers start at one anchor in scope {scope}.")
-
-    return containers[0] if containers else None
-
-
-def find_staff_point_context_at[T: StaffScoped](
-    *,
-    anchor: TemporalAnchor,
-    context_type: type[T],
-    staff: Staff,
-) -> T | None:
-    """The context of exactly ``context_type`` already starting at this anchor, for
-    this staff — the search behind the one-per-anchor-per-staff invariant. Shared by
-    every staff-scoped point-context creator so the invariant is enforced once, not
-    reimplemented per type.
-    """
-    return next(
-        (
-            context
-            for context in anchor.starting_contexts
-            if isinstance(context, context_type) and context.staff is staff
-        ),
-        None,
-    )
+    return beams
