@@ -1,5 +1,7 @@
+from piano_app.domain.score.document.models.material import Note
 from piano_app.domain.score.document.models.structural import Voice
 from piano_app.domain.score.document.models.structural.rhythm import (
+    GraceItem,
     GroupRhythmicContainer,
     LeafRhythmicContainer,
     RhythmicContainer,
@@ -34,3 +36,13 @@ def voice_of(
         return voice_of(container.parent)
 
     raise TypeError("Rhythmic container parent is not a voice.")
+
+
+def host_leaf_of(*, note: Note) -> LeafRhythmicContainer | None:
+    """The leaf a note sounds with: the leaf holding its carrier, or for a grace note the leaf
+    its group belongs to."""
+    owner: object = note.note_carrier.owner
+    if isinstance(owner, GraceItem):
+        return owner.grace_group.leaf
+
+    return owner if isinstance(owner, LeafRhythmicContainer) else None
