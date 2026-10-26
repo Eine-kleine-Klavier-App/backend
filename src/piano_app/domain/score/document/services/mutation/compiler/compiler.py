@@ -11,8 +11,9 @@ class MutationCompiler:
     """Entry / command-compiler: turns one user intent into the engine requests of
     one gesture, dispatching to the compiler registered for the intent's type.
 
-    Deterministic — it reads the document grid, mints the SSA ``out`` ref, and never
-    mutates. This is the seam where pre-computable decomposition lives.
+    Deterministic — it only addresses (ids to entities, a click to voice, measure,
+    position and length) and never mutates; every decision is taken on the live document
+    by the analyzers.
     """
 
     def __init__(self, *, registry: IntentCompilerRegistry) -> None:
