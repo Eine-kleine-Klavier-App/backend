@@ -1,41 +1,34 @@
 from collections.abc import Sequence
 
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
-from piano_app.domain.score.document.models.material import (
-    CarrierOwner,
-    Note,
-    NoteCarrier,
-    Rest,
-    RestCarrier,
-)
-from piano_app.domain.score.document.models.structural.rhythm import (
-    GroupRhythmicContainer,
-    RhythmicContainer,
-    RhythmicContainerParent,
-)
+from piano_app.domain.score.document.models.context import ClefChange, OctaveTransposition
 from piano_app.domain.score.document.services.mutation.compiler.intents import DeleteBatchIntent
-from piano_app.domain.score.document.services.mutation.compiler.steps import resolve_entities
+from piano_app.domain.score.document.services.mutation.compiler.steps import (
+    refuse_initial_context,
+    resolve_entities,
+)
 from piano_app.domain.score.document.services.mutation.instructions import (
     MutationRejectedError,
     MutationRequest,
 )
-from piano_app.domain.score.document.services.mutation.instructions.requests.material import (
-    DeleteNoteCarrierRequest,
-    DeleteNoteRequest,
-    DeleteRestCarrierRequest,
-    DeleteRestRequest,
-)
-from piano_app.domain.score.document.services.mutation.instructions.requests.rhythmic import (
-    DeleteRhythmicGroupRequest,
+from piano_app.domain.score.document.services.mutation.instructions.requests.intent import (
+    RemoveRequest,
+    RemoveTarget,
 )
 
 
 class DeleteBatchCompiler:
-    """Compiles one mixed delete gesture, pruning whatever a listed entity already holds.
+    """Compiles one mixed delete gesture into a single remove request over the listed
+    entities, in the order of their ids.
 
-    The order of the ids is retained within each level, while groups are emitted before
-    carriers and carriers before primitives, because their analyzers own the downward
-    cascade. Relation deletion is not supported by this intent yet.
+    Only addresses: what a listed entity already holds and the order of the deletions are
+    decided on the live document by the analyzers. A measure goes by the measure removal
+    rules. A grace group, item, carrier, note or rest goes as the analyzer decides on the
+    live document: a group whose items all go goes whole. Voices and staffs are not deleted
+    by this intent yet, and neither are anchors. The clef, key signature, tempo and dynamic at
+    the very start of the score are never deleted: every score keeps them there
+    (initial-clef-invariant). A clef and an octave line are refused too: each has a command of
+    its own, which asks how its notes are treated.
     """
 
     def compile(
@@ -52,79 +45,26 @@ class DeleteBatchCompiler:
             document=document,
             entity_ids=unique_ids,
         )
-        resolved_entities: list[ScoreEntity] = [
-            entities_by_id[entity_id] for entity_id in unique_ids
-        ]
 
-        unsupported_entities: list[ScoreEntity] = [
-            entity
-            for entity in resolved_entities
-            if not isinstance(
-                entity, GroupRhythmicContainer | Note | NoteCarrier | Rest | RestCarrier
-            )
-        ]
+        targets: list[RemoveTarget] = []
+        unsupported_entities: list[ScoreEntity] = []
+        for entity_id in unique_ids:
+            entity: ScoreEntity = entities_by_id[entity_id]
+            refuse_initial_context(document=document, entity=entity)
+            if isinstance(entity, ClefChange | OctaveTransposition):
+                raise MutationRejectedError(
+                    "A clef or an octave line is deleted with its own command, "
+                    "which asks how its notes are treated."
+                )
+            if isinstance(entity, RemoveTarget):
+                targets.append(entity)
+            else:
+                unsupported_entities.append(entity)
+
         if unsupported_entities:
             targets_description: str = ", ".join(
                 f"{type(entity).__name__}({entity.id!r})" for entity in unsupported_entities
             )
             raise MutationRejectedError(f"Unsupported delete targets: {targets_description}.")
 
-        listed_groups: list[GroupRhythmicContainer] = [
-            entity for entity in resolved_entities if isinstance(entity, GroupRhythmicContainer)
-        ]
-        groups: list[GroupRhythmicContainer] = [
-            group for group in listed_groups if not _held(owner=group, groups=listed_groups)
-        ]
-        note_carriers: list[NoteCarrier] = [
-            entity
-            for entity in resolved_entities
-            if isinstance(entity, NoteCarrier)
-            and not _held(owner=entity.owner, groups=listed_groups)
-        ]
-        rest_carriers: list[RestCarrier] = [
-            entity
-            for entity in resolved_entities
-            if isinstance(entity, RestCarrier)
-            and not _held(owner=entity.owner, groups=listed_groups)
-        ]
-        notes: list[Note] = [
-            entity
-            for entity in resolved_entities
-            if isinstance(entity, Note)
-            and entity.note_carrier not in note_carriers
-            and not _held(owner=entity.note_carrier.owner, groups=listed_groups)
-        ]
-        rests: list[Rest] = [
-            entity
-            for entity in resolved_entities
-            if isinstance(entity, Rest)
-            and entity.rest_carrier not in rest_carriers
-            and not _held(owner=entity.rest_carrier.owner, groups=listed_groups)
-        ]
-
-        return [
-            *(DeleteRhythmicGroupRequest(target=group) for group in groups),
-            *(DeleteNoteCarrierRequest(target=carrier) for carrier in note_carriers),
-            *(DeleteRestCarrierRequest(target=carrier) for carrier in rest_carriers),
-            *(DeleteNoteRequest(target=note) for note in notes),
-            *(DeleteRestRequest(target=rest) for rest in rests),
-        ]
-
-
-def _held(
-    *,
-    owner: CarrierOwner | RhythmicContainer,
-    groups: list[GroupRhythmicContainer],
-) -> bool:
-    """Whether one of ``groups`` holds ``owner`` at any depth — that group's cascade
-    already deletes it."""
-    parent: RhythmicContainerParent | None = (
-        owner.parent if isinstance(owner, RhythmicContainer) else None
-    )
-    while isinstance(parent, GroupRhythmicContainer):
-        if parent in groups:
-            return True
-
-        parent = parent.parent
-
-    return False
+        return [RemoveRequest(document=document, targets=tuple(targets))]

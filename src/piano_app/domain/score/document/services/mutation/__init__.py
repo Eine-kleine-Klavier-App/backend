@@ -1,4 +1,12 @@
 from .compiler import MutationCompiler, build_compiler
-from .engine import MutationEngine, build_engine
+from .editor import MutationEditor
+from .engine import MutationEngine, MutationTransaction, build_engine
 
-__all__ = ("MutationCompiler", "MutationEngine", "build_compiler", "build_engine")
+__all__ = (
+    "MutationCompiler",
+    "MutationEditor",
+    "MutationEngine",
+    "MutationTransaction",
+    "build_compiler",
+    "build_engine",
+)
