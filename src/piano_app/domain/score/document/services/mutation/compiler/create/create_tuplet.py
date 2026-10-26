@@ -1,39 +1,36 @@
 from collections.abc import Sequence
 
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
-from piano_app.domain.score.document.models.material import Note, Rest
-from piano_app.domain.score.document.models.notation import DottedRhythmicValue, RhythmicSize
+from piano_app.domain.score.document.models.notation import RhythmicSize
 from piano_app.domain.score.document.models.structural import (
     Measure,
     MeasurePosition,
     Staff,
     Voice,
 )
-from piano_app.domain.score.document.models.structural.rhythm import GroupRhythmicContainer
-from piano_app.domain.score.document.services.geometry import Span
+from piano_app.domain.score.document.services.contexts import ContextIndex
+from piano_app.domain.score.document.services.geometry import Point
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     CreateTupletWithNoteIntent,
     CreateTupletWithRestIntent,
 )
 from piano_app.domain.score.document.services.mutation.compiler.steps import (
-    Location,
     expect_entity,
-    locate,
     resolve_entities,
 )
 from piano_app.domain.score.document.services.mutation.instructions import (
     MutationRejectedError,
     MutationRequest,
-    ResultRef,
-)
-from piano_app.domain.score.document.services.mutation.instructions.requests.material import (
-    CreateNoteRequest,
-    CreateRestRequest,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.rhythmic import (
     CreateRhythmicGroupRequest,
+    NoteContent,
+    PlaceSpansRequest,
+    RestContent,
 )
+from piano_app.domain.score.document.services.pitch import PitchResolutionError, SignCell
+from piano_app.domain.score.document.services.pitch.score_pitch import ScorePitch
 
 
 class CreateTupletWithNoteCompiler:
@@ -65,27 +62,44 @@ class CreateTupletWithNoteCompiler:
             expected=Measure,
         )
 
-        tuplet: CreateRhythmicGroupRequest = _tuplet_request(
-            voice=voice,
-            measure=measure,
-            position=intent.position,
-            written_size=intent.written_size,
-            occupied_size=intent.occupied_size,
-            first_value=intent.written_value,
-        )
+        accidental = intent.accidental
+        if accidental is None:
+            geometry = ScoreGeometry(document=document)
+            try:
+                accidental = ScorePitch(
+                    document=document,
+                    geometry=geometry,
+                    contexts=ContextIndex(document=document, geometry=geometry),
+                ).accidental_at(
+                    staff=staff,
+                    point=Point(
+                        frame=geometry.of_measure(measure=measure), value=intent.position.value
+                    ),
+                    staff_step=intent.staff_step,
+                    cell=SignCell.NOTE,
+                )
+            except (ValueError, PitchResolutionError) as error:
+                raise MutationRejectedError(reason=str(error)) from error
 
         return [
-            tuplet,
-            CreateNoteRequest(
-                scope=tuplet.out,
-                staff=staff,
+            _tuplet_request(
+                voice=voice,
                 measure=measure,
                 position=intent.position,
-                written_value=intent.written_value,
-                staff_step=intent.staff_step,
-                accidental=intent.accidental,
-                fingering=intent.fingering,
-                out=ResultRef[Note](),
+                written_size=intent.written_size,
+                occupied_size=intent.occupied_size,
+            ),
+            PlaceSpansRequest(
+                voice=voice,
+                measure=measure,
+                position=intent.position,
+                written_length=intent.written_value.fraction,
+                content=NoteContent(
+                    staff=staff,
+                    staff_step=intent.staff_step,
+                    accidental=accidental,
+                    fingering=intent.fingering,
+                ),
             ),
         ]
 
@@ -119,24 +133,20 @@ class CreateTupletWithRestCompiler:
             expected=Measure,
         )
 
-        tuplet: CreateRhythmicGroupRequest = _tuplet_request(
-            voice=voice,
-            measure=measure,
-            position=intent.position,
-            written_size=intent.written_size,
-            occupied_size=intent.occupied_size,
-            first_value=intent.written_value,
-        )
-
         return [
-            tuplet,
-            CreateRestRequest(
-                scope=tuplet.out,
-                staff=staff,
+            _tuplet_request(
+                voice=voice,
                 measure=measure,
                 position=intent.position,
-                written_value=intent.written_value,
-                out=ResultRef[Rest](),
+                written_size=intent.written_size,
+                occupied_size=intent.occupied_size,
+            ),
+            PlaceSpansRequest(
+                voice=voice,
+                measure=measure,
+                position=intent.position,
+                written_length=intent.written_value.fraction,
+                content=RestContent(staff=staff),
             ),
         ]
 
@@ -148,37 +158,16 @@ def _tuplet_request(
     position: MeasurePosition,
     written_size: RhythmicSize,
     occupied_size: RhythmicSize,
-    first_value: DottedRhythmicValue,
 ) -> CreateRhythmicGroupRequest:
-    """The request creating the tuplet, located like a note — in the innermost scope
-    holding its start, refused when it does not fit there — and never cut at a barline,
-    since a group spans barlines on its own. Its first element is created into it right
-    after, by the ref; the fill tiles the rest of it at the gesture boundary.
+    """The request creating the tuplet, addressed from its voice: its analyzer locates it
+    on the live document. Its first element is placed right after, where the new tuplet
+    is the deepest scope at its start; the fill tiles the rest of it at the gesture
+    boundary.
     """
-    # what the tuplet takes is read in the scope it lands in
-    location: Location = locate(
-        voice=voice,
-        measure=measure,
-        position=position,
-        length=occupied_size.fraction,
-    )
-
-    # the first element sounds its written value scaled by the tuplet; a barline inside it
-    # would need slicing within a group that does not exist yet
-    first: Span = Span(
-        frame=location.span.frame,
-        start=location.span.start,
-        length=first_value.fraction * occupied_size.fraction / written_size.fraction,
-    )
-    geometry: ScoreGeometry = ScoreGeometry(origin=measure)
-    if len(geometry.slice_by_measures(span=first)) > 1:
-        raise MutationRejectedError("A tuplet's first element may not cross a barline yet.")
-
     return CreateRhythmicGroupRequest(
-        scope=location.scope,
+        voice=voice,
         measure=measure,
         position=position,
         written_size=written_size,
         occupied_size=occupied_size,
-        out=ResultRef[GroupRhythmicContainer](),
     )
