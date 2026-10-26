@@ -5,7 +5,7 @@ from piano_app.domain.score.document.services.mutation.compiler.base import Edit
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeleteBatchIntent(EditIntent):
-    """Delete several entities at once — note / rest carriers and single notes /
-    rests — as one gesture."""
+    """Delete several entities at once — groups, leaves, note / rest carriers, single
+    notes / rests, relations, contexts and measures — as one gesture."""
 
     entity_ids: tuple[str, ...]
