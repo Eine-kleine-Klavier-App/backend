@@ -25,7 +25,7 @@ class CreateTupletWithNoteIntent(EditIntent):
     occupied_size: RhythmicSize
     written_value: DottedRhythmicValue
     staff_step: int
-    accidental: Accidental
+    accidental: Accidental | None = None
     fingering: Fingering = Fingering.NONE
 
 
