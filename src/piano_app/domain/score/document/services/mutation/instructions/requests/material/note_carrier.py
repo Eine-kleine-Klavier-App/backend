@@ -1,40 +1,45 @@
 from dataclasses import dataclass
+from typing import ClassVar
 
+from piano_app.domain.score.document.models import ScoreEntity
 from piano_app.domain.score.document.models.material import NoteCarrier
-from piano_app.domain.score.document.models.notation import (
-    Articulation,
-    DottedRhythmicValue,
-    StemOverride,
+from piano_app.domain.score.document.models.notation import Articulation, Ornament
+from piano_app.domain.score.document.models.structural.rhythm import (
+    GraceItem,
+    LeafRhythmicContainer,
 )
-from piano_app.domain.score.document.models.structural import Measure, MeasurePosition
-from piano_app.domain.score.document.models.structural.rhythm import RhythmicContainerParent
-from piano_app.domain.score.document.services.mutation.instructions.refs import Bound
 from piano_app.domain.score.document.services.mutation.instructions.requests.base import (
+    Axis,
     CreateMutationRequest,
-    DeleteMutationRequest,
     UpdateMutationRequest,
 )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateNoteCarrierRequest(CreateMutationRequest[NoteCarrier]):
-    """A request to create a note carrier in a rhythmic scope at a measure position."""
+    """A request to create a note carrier on a given leaf or grace item."""
 
-    scope: Bound[RhythmicContainerParent]
-    measure: Measure
+    axis: ClassVar[Axis | None] = Axis.CONTENT
+    creates: ClassVar[type[ScoreEntity]] = NoteCarrier
 
-    position: MeasurePosition
-    written_value: DottedRhythmicValue
-    articulation: Articulation = Articulation.NONE
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class DeleteNoteCarrierRequest(DeleteMutationRequest[NoteCarrier]):
-    """A request to delete a note carrier."""
+    owner: LeafRhythmicContainer | GraceItem
+    articulations: frozenset[Articulation] = frozenset()
+    ornament: Ornament = Ornament.NONE
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class UpdateStemRequest(UpdateMutationRequest[NoteCarrier]):
-    """A request to draw a note carrier's stem as given; ``None`` draws it automatically."""
+class UpdateArticulationRequest(UpdateMutationRequest[NoteCarrier]):
+    """A request to set the marks of articulation a note carrier has."""
 
-    stem: StemOverride | None
+    axis: ClassVar[Axis | None] = Axis.CONTENT
+
+    articulations: frozenset[Articulation]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UpdateOrnamentRequest(UpdateMutationRequest[NoteCarrier]):
+    """A request to set a note carrier's ornament."""
+
+    axis: ClassVar[Axis | None] = Axis.CONTENT
+
+    ornament: Ornament

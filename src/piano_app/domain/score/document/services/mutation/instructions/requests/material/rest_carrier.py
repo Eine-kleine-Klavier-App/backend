@@ -1,27 +1,23 @@
 from dataclasses import dataclass
+from typing import ClassVar
 
+from piano_app.domain.score.document.models import ScoreEntity
 from piano_app.domain.score.document.models.material import RestCarrier
-from piano_app.domain.score.document.models.notation import DottedRhythmicValue
-from piano_app.domain.score.document.models.structural import Measure, MeasurePosition
-from piano_app.domain.score.document.models.structural.rhythm import RhythmicContainerParent
-from piano_app.domain.score.document.services.mutation.instructions.refs import Bound
+from piano_app.domain.score.document.models.structural.rhythm import (
+    GraceItem,
+    LeafRhythmicContainer,
+)
 from piano_app.domain.score.document.services.mutation.instructions.requests.base import (
+    Axis,
     CreateMutationRequest,
-    DeleteMutationRequest,
 )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateRestCarrierRequest(CreateMutationRequest[RestCarrier]):
-    """A request to create a rest carrier in a rhythmic scope at a measure position."""
+    """A request to create a rest carrier on a given leaf or grace item."""
 
-    scope: Bound[RhythmicContainerParent]
-    measure: Measure
+    axis: ClassVar[Axis | None] = Axis.CONTENT
+    creates: ClassVar[type[ScoreEntity]] = RestCarrier
 
-    position: MeasurePosition
-    written_value: DottedRhythmicValue
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class DeleteRestCarrierRequest(DeleteMutationRequest[RestCarrier]):
-    """A request to delete a rest carrier."""
+    owner: LeafRhythmicContainer | GraceItem
