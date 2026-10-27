@@ -1,9 +1,12 @@
 from dataclasses import dataclass
+from typing import ClassVar
 
+from piano_app.domain.score.document.models import ScoreEntity
 from piano_app.domain.score.document.models.context import ClefChange
 from piano_app.domain.score.document.models.notation import Clef
 from piano_app.domain.score.document.models.structural import Measure, MeasurePosition, Staff
 from piano_app.domain.score.document.services.mutation.instructions.requests.base import (
+    Axis,
     CreateMutationRequest,
 )
 
@@ -11,6 +14,9 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.bas
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateClefChangeRequest(CreateMutationRequest[ClefChange]):
     """A request to assert a clef on one staff, starting at a measure position."""
+
+    axis: ClassVar[Axis | None] = Axis.CONTEXTS
+    creates: ClassVar[type[ScoreEntity]] = ClefChange
 
     measure: Measure
     position: MeasurePosition
