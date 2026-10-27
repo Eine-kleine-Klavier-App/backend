@@ -1,3 +1,9 @@
-from .anchor import CreateTemporalAnchorRequest, DeleteTemporalAnchorRequest
+from .anchor import (
+    CreateTemporalAnchorRequest,
+    UpdateTemporalAnchorRequest,
+)
 
-__all__ = ("CreateTemporalAnchorRequest", "DeleteTemporalAnchorRequest")
+__all__ = (
+    "CreateTemporalAnchorRequest",
+    "UpdateTemporalAnchorRequest",
+)

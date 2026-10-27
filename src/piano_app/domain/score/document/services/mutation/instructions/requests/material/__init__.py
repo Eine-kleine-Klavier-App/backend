@@ -1,16 +1,25 @@
-from .note import CreateNoteRequest, DeleteNoteRequest
-from .note_carrier import CreateNoteCarrierRequest, DeleteNoteCarrierRequest, UpdateStemRequest
-from .rest import CreateRestRequest, DeleteRestRequest
-from .rest_carrier import CreateRestCarrierRequest, DeleteRestCarrierRequest
+from .note import (
+    CreateNoteRequest,
+    UpdateFingeringRequest,
+    UpdateNotePitchRequest,
+    UpdateStaffStepRequest,
+)
+from .note_carrier import (
+    CreateNoteCarrierRequest,
+    UpdateArticulationRequest,
+    UpdateOrnamentRequest,
+)
+from .rest import CreateRestRequest
+from .rest_carrier import CreateRestCarrierRequest
 
 __all__ = (
     "CreateNoteCarrierRequest",
     "CreateNoteRequest",
     "CreateRestCarrierRequest",
     "CreateRestRequest",
-    "DeleteNoteCarrierRequest",
-    "DeleteNoteRequest",
-    "DeleteRestCarrierRequest",
-    "DeleteRestRequest",
-    "UpdateStemRequest",
+    "UpdateArticulationRequest",
+    "UpdateFingeringRequest",
+    "UpdateNotePitchRequest",
+    "UpdateOrnamentRequest",
+    "UpdateStaffStepRequest",
 )
