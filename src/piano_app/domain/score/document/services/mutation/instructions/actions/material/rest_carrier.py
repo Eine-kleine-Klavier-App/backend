@@ -5,14 +5,13 @@ from piano_app.domain.score.document.services.mutation.instructions.actions.base
     CreateMutationAction,
     DeleteMutationAction,
 )
-from piano_app.domain.score.document.services.mutation.instructions.refs import Bound
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateRestCarrierAction(CreateMutationAction[RestCarrier]):
     """Creates a rest carrier on its owner (leaf or grace item)."""
 
-    owner: Bound[CarrierOwner]
+    owner: CarrierOwner
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
