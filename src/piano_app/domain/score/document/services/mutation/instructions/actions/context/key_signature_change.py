@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
-from piano_app.domain.score.document.models.context import KeySignatureChange, KeySignatureSymbol
+from piano_app.domain.score.document.models.context import KeySignatureChange
+from piano_app.domain.score.document.models.notation import Accidental
 from piano_app.domain.score.document.models.structural import Staff, TemporalAnchor
-from piano_app.domain.score.document.services.mutation.instructions import Bound
 from piano_app.domain.score.document.services.mutation.instructions.actions.base import (
     CreateMutationAction,
 )
@@ -12,6 +12,6 @@ from piano_app.domain.score.document.services.mutation.instructions.actions.base
 class CreateKeySignatureChangeAction(CreateMutationAction[KeySignatureChange]):
     """Creates a key signature change on its anchor."""
 
-    start: Bound[TemporalAnchor]
+    start: TemporalAnchor
     staff: Staff
-    symbols: tuple[KeySignatureSymbol, ...]
+    alterations: tuple[Accidental, ...]

@@ -6,14 +6,13 @@ from piano_app.domain.score.document.services.mutation.instructions.actions.base
     CreateMutationAction,
     DeleteMutationAction,
 )
-from piano_app.domain.score.document.services.mutation.instructions.refs import Bound
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateRestAction(CreateMutationAction[Rest]):
     """Creates a rest inside a rest carrier, on a staff."""
 
-    rest_carrier: Bound[RestCarrier]
+    rest_carrier: RestCarrier
     staff: Staff
 
 

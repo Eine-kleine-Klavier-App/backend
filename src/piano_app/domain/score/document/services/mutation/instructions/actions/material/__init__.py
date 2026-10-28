@@ -1,5 +1,16 @@
-from .note import CreateNoteAction, DeleteNoteAction
-from .note_carrier import CreateNoteCarrierAction, DeleteNoteCarrierAction, UpdateStemAction
+from .note import (
+    CreateNoteAction,
+    DeleteNoteAction,
+    UpdateFingeringAction,
+    UpdateNotePitchAction,
+    UpdateStaffStepAction,
+)
+from .note_carrier import (
+    CreateNoteCarrierAction,
+    DeleteNoteCarrierAction,
+    UpdateArticulationAction,
+    UpdateOrnamentAction,
+)
 from .rest import CreateRestAction, DeleteRestAction
 from .rest_carrier import CreateRestCarrierAction, DeleteRestCarrierAction
 
@@ -12,5 +23,9 @@ __all__ = (
     "DeleteNoteCarrierAction",
     "DeleteRestAction",
     "DeleteRestCarrierAction",
-    "UpdateStemAction",
+    "UpdateArticulationAction",
+    "UpdateFingeringAction",
+    "UpdateNotePitchAction",
+    "UpdateOrnamentAction",
+    "UpdateStaffStepAction",
 )

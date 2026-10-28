@@ -9,19 +9,26 @@ from piano_app.domain.score.document.models.structural.rhythm import (
 from piano_app.domain.score.document.services.mutation.instructions.actions.base import (
     CreateMutationAction,
     DeleteMutationAction,
+    UpdateMutationAction,
 )
-from piano_app.domain.score.document.services.mutation.instructions.refs import Bound
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateLeafAction(CreateMutationAction[LeafRhythmicContainer]):
     """Creates a leaf rhythmic container under a parent, at an anchor."""
 
-    parent: Bound[RhythmicContainerParent]
-    anchor: Bound[TemporalAnchor]
+    parent: RhythmicContainerParent
+    anchor: TemporalAnchor
     size: RhythmicSize
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeleteLeafAction(DeleteMutationAction[LeafRhythmicContainer]):
     """Deletes a leaf rhythmic container."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UpdateLeafSizeAction(UpdateMutationAction[LeafRhythmicContainer]):
+    """Resizes a leaf rhythmic container in place."""
+
+    size: RhythmicSize
