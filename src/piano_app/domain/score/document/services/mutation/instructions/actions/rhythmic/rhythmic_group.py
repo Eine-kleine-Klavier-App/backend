@@ -10,15 +10,14 @@ from piano_app.domain.score.document.services.mutation.instructions.actions.base
     CreateMutationAction,
     DeleteMutationAction,
 )
-from piano_app.domain.score.document.services.mutation.instructions.refs import Bound
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateRhythmicGroupAction(CreateMutationAction[GroupRhythmicContainer]):
     """Creates an empty rhythmic group at its anchor, inside its parent scope."""
 
-    parent: Bound[RhythmicContainerParent]
-    anchor: Bound[TemporalAnchor]
+    parent: RhythmicContainerParent
+    anchor: TemporalAnchor
     written_size: RhythmicSize
     occupied_size: RhythmicSize
 
@@ -26,3 +25,15 @@ class CreateRhythmicGroupAction(CreateMutationAction[GroupRhythmicContainer]):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeleteRhythmicGroupAction(DeleteMutationAction[GroupRhythmicContainer]):
     """Deletes a rhythmic group container."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SplitRhythmicGroupAction(CreateMutationAction[GroupRhythmicContainer]):
+    """Splits a rhythmic group in two at an anchor in one step; produces the second part."""
+
+    group: GroupRhythmicContainer
+    anchor: TemporalAnchor
+    first_written_size: RhythmicSize
+    first_occupied_size: RhythmicSize
+    second_written_size: RhythmicSize
+    second_occupied_size: RhythmicSize
