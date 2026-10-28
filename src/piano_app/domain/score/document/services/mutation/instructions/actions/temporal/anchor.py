@@ -8,6 +8,7 @@ from piano_app.domain.score.document.models.structural import (
 from piano_app.domain.score.document.services.mutation.instructions.actions.base import (
     CreateMutationAction,
     DeleteMutationAction,
+    UpdateMutationAction,
 )
 
 
@@ -22,3 +23,11 @@ class CreateTemporalAnchorAction(CreateMutationAction[TemporalAnchor]):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeleteTemporalAnchorAction(DeleteMutationAction[TemporalAnchor]):
     """Deletes a temporal anchor."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UpdateTemporalAnchorAction(UpdateMutationAction[TemporalAnchor]):
+    """Moves a temporal anchor to another measure position."""
+
+    measure: Measure
+    position: MeasurePosition
