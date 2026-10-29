@@ -1,21 +1,23 @@
 from piano_app.domain.score.document.models.context import ClefChange
 from piano_app.domain.score.document.models.structural import TemporalAnchor
-from piano_app.domain.score.document.services.helpers import (
-    find_anchor_at,
-    find_staff_point_context_at,
+from piano_app.domain.score.document.services.contexts import (
+    ContextIndex,
+    find_clashes,
+    global_position,
 )
-from piano_app.domain.score.document.services.mutation.engine.buffer import EmitBuffer
-from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
-from piano_app.domain.score.document.services.mutation.instructions import Bound, ResultRef
+from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.mutation.engine.analyzers.base import (
+    find_or_create_anchor,
+)
+from piano_app.domain.score.document.services.mutation.engine.analyzers.context.clashes import (
+    displace_same_place,
+)
+from piano_app.domain.score.document.services.mutation.engine.typing import MutationAnalysis
 from piano_app.domain.score.document.services.mutation.instructions.actions.context import (
     CreateClefChangeAction,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.context import (
     CreateClefChangeRequest,
-    DeleteContextRequest,
-)
-from piano_app.domain.score.document.services.mutation.instructions.requests.temporal import (
-    CreateTemporalAnchorRequest,
 )
 
 
@@ -32,46 +34,30 @@ class CreateClefChangeAnalyzer:
         self,
         *,
         request: CreateClefChangeRequest,
-        resolver: ResolveBound,
-    ) -> EmitBuffer:
-        buffer: EmitBuffer = EmitBuffer(request=request)
-
-        existing_anchor: TemporalAnchor | None = find_anchor_at(
-            measure=request.measure,
-            position=request.position,
-        )
-
-        anchor: Bound[TemporalAnchor]
-        if existing_anchor is not None:
-            anchor = existing_anchor
-
-            # a freshly created anchor cannot already hold a conflicting context --
-            # the search only makes sense against one that already existed
-            conflicting: ClefChange | None = find_staff_point_context_at(
-                anchor=existing_anchor,
-                context_type=ClefChange,
+        geometry: ScoreGeometry,
+        contexts: ContextIndex,
+    ) -> MutationAnalysis:
+        yield from displace_same_place(
+            clashes=find_clashes(
+                contexts=contexts,
+                kind=ClefChange,
+                start=global_position(
+                    geometry=geometry, measure=request.measure, position=request.position
+                ),
+                end=None,
                 staff=request.staff,
-            )
-            if conflicting is not None:
-                buffer.incorporate(item=DeleteContextRequest(target=conflicting))
-        else:
-            anchor = ResultRef[TemporalAnchor]()
-            buffer.incorporate(
-                item=CreateTemporalAnchorRequest(
-                    measure=request.measure,
-                    position=request.position,
-                    out=anchor,
-                )
-            )
-
-        buffer.incorporate(
-            item=CreateClefChangeAction(
-                start=anchor,
-                staff=request.staff,
-                clef=request.clef,
-                octave_transposition=request.octave_transposition,
-                out=request.out,
+                voices=None,
             ),
+            voices=None,
         )
 
-        return buffer
+        anchor: TemporalAnchor = yield from find_or_create_anchor(
+            measure=request.measure, position=request.position
+        )
+
+        yield CreateClefChangeAction(
+            start=anchor,
+            staff=request.staff,
+            clef=request.clef,
+            octave_transposition=request.octave_transposition,
+        )
