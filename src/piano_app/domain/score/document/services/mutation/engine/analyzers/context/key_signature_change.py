@@ -1,21 +1,28 @@
-from piano_app.domain.score.document.models.context import KeySignatureChange
-from piano_app.domain.score.document.models.structural import TemporalAnchor
-from piano_app.domain.score.document.services.helpers import (
-    find_anchor_at,
-    find_staff_point_context_at,
+from piano_app.domain.score.document.models.context import (
+    KEY_SIGNATURE_ACCIDENTALS,
+    KEY_SIGNATURE_STEPS,
+    KeySignatureChange,
 )
-from piano_app.domain.score.document.services.mutation.engine.buffer import EmitBuffer
-from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
-from piano_app.domain.score.document.services.mutation.instructions import Bound, ResultRef
+from piano_app.domain.score.document.models.structural import TemporalAnchor
+from piano_app.domain.score.document.services.contexts import (
+    ContextIndex,
+    find_clashes,
+    global_position,
+)
+from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.mutation.engine.analyzers.base import (
+    find_or_create_anchor,
+)
+from piano_app.domain.score.document.services.mutation.engine.analyzers.context.clashes import (
+    displace_same_place,
+)
+from piano_app.domain.score.document.services.mutation.engine.typing import MutationAnalysis
+from piano_app.domain.score.document.services.mutation.instructions import MutationRejectedError
 from piano_app.domain.score.document.services.mutation.instructions.actions.context import (
     CreateKeySignatureChangeAction,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.context import (
     CreateKeySignatureChangeRequest,
-    DeleteContextRequest,
-)
-from piano_app.domain.score.document.services.mutation.instructions.requests.temporal import (
-    CreateTemporalAnchorRequest,
 )
 
 
@@ -31,43 +38,38 @@ class CreateKeySignatureChangeAnalyzer:
         self,
         *,
         request: CreateKeySignatureChangeRequest,
-        resolver: ResolveBound,
-    ) -> EmitBuffer:
-        buffer: EmitBuffer = EmitBuffer(request=request)
-
-        existing_anchor: TemporalAnchor | None = find_anchor_at(
-            measure=request.measure,
-            position=request.position,
-        )
-
-        anchor: Bound[TemporalAnchor]
-        if existing_anchor is not None:
-            anchor = existing_anchor
-
-            conflicting: KeySignatureChange | None = find_staff_point_context_at(
-                anchor=existing_anchor,
-                context_type=KeySignatureChange,
-                staff=request.staff,
-            )
-            if conflicting is not None:
-                buffer.incorporate(item=DeleteContextRequest(target=conflicting))
-        else:
-            anchor = ResultRef[TemporalAnchor]()
-            buffer.incorporate(
-                item=CreateTemporalAnchorRequest(
-                    measure=request.measure,
-                    position=request.position,
-                    out=anchor,
-                )
+        geometry: ScoreGeometry,
+        contexts: ContextIndex,
+    ) -> MutationAnalysis:
+        if len(request.alterations) != KEY_SIGNATURE_STEPS:
+            raise MutationRejectedError(
+                f"A key signature gives {KEY_SIGNATURE_STEPS} alterations, one for each step."
             )
 
-        buffer.incorporate(
-            item=CreateKeySignatureChangeAction(
-                start=anchor,
+        for alteration in request.alterations:
+            if alteration not in KEY_SIGNATURE_ACCIDENTALS:
+                raise MutationRejectedError("A key signature has no double accidentals.")
+
+        yield from displace_same_place(
+            clashes=find_clashes(
+                contexts=contexts,
+                kind=KeySignatureChange,
+                start=global_position(
+                    geometry=geometry, measure=request.measure, position=request.position
+                ),
+                end=None,
                 staff=request.staff,
-                symbols=request.symbols,
-                out=request.out,
+                voices=None,
             ),
+            voices=None,
         )
 
-        return buffer
+        anchor: TemporalAnchor = yield from find_or_create_anchor(
+            measure=request.measure, position=request.position
+        )
+
+        yield CreateKeySignatureChangeAction(
+            start=anchor,
+            staff=request.staff,
+            alterations=request.alterations,
+        )
