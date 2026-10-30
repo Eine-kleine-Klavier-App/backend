@@ -1,6 +1,11 @@
-from .anchor import CreateTemporalAnchorAnalyzer, DeleteTemporalAnchorAnalyzer
+from .anchor import (
+    CreateTemporalAnchorAnalyzer,
+    UpdateTemporalAnchorAnalyzer,
+    cascade_anchor,
+)
 
 __all__ = (
     "CreateTemporalAnchorAnalyzer",
-    "DeleteTemporalAnchorAnalyzer",
+    "UpdateTemporalAnchorAnalyzer",
+    "cascade_anchor",
 )

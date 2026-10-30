@@ -1,6 +1,5 @@
 from piano_app.domain.score.document.models.material import Rest, RestCarrier
 from piano_app.domain.score.document.models.mutation_sink import MutationSink
-from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
 from piano_app.domain.score.document.services.mutation.instructions.actions.material import (
     CreateRestAction,
     DeleteRestAction,
@@ -8,16 +7,15 @@ from piano_app.domain.score.document.services.mutation.instructions.actions.mate
 
 
 class CreateRestHandler:
-    """Creates a rest inside its carrier (resolved from the environment)."""
+    """Creates a rest inside its carrier."""
 
     def handle(
         self,
         *,
         action: CreateRestAction,
-        resolve: ResolveBound,
         sink: MutationSink,
     ) -> Rest:
-        rest_carrier: RestCarrier = resolve(action.rest_carrier)
+        rest_carrier: RestCarrier = action.rest_carrier
         rest: Rest = Rest.create(
             rest_carrier=rest_carrier,
             staff=action.staff,
@@ -33,7 +31,6 @@ class DeleteRestHandler:
         self,
         *,
         action: DeleteRestAction,
-        resolve: ResolveBound,
         sink: MutationSink,
     ) -> None:
         rest: Rest = action.target
