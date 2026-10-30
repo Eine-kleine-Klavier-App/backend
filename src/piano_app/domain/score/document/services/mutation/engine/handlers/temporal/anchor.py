@@ -1,9 +1,9 @@
 from piano_app.domain.score.document.models.mutation_sink import MutationSink
 from piano_app.domain.score.document.models.structural import TemporalAnchor
-from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
 from piano_app.domain.score.document.services.mutation.instructions.actions.temporal import (
     CreateTemporalAnchorAction,
     DeleteTemporalAnchorAction,
+    UpdateTemporalAnchorAction,
 )
 
 
@@ -14,7 +14,6 @@ class CreateTemporalAnchorHandler:
         self,
         *,
         action: CreateTemporalAnchorAction,
-        resolve: ResolveBound,
         sink: MutationSink,
     ) -> TemporalAnchor:
         anchor: TemporalAnchor = TemporalAnchor.create(
@@ -32,9 +31,22 @@ class DeleteTemporalAnchorHandler:
         self,
         *,
         action: DeleteTemporalAnchorAction,
-        resolve: ResolveBound,
         sink: MutationSink,
     ) -> None:
         anchor: TemporalAnchor = action.target
         anchor.detach(sink=sink)
+        return None
+
+
+class UpdateTemporalAnchorHandler:
+    """Moves a temporal anchor to another measure position."""
+
+    def handle(
+        self,
+        *,
+        action: UpdateTemporalAnchorAction,
+        sink: MutationSink,
+    ) -> None:
+        anchor: TemporalAnchor = action.target
+        anchor.move_to(measure=action.measure, position=action.position, sink=sink)
         return None

@@ -1,6 +1,5 @@
 from piano_app.domain.score.document.models.material import CarrierOwner, RestCarrier
 from piano_app.domain.score.document.models.mutation_sink import MutationSink
-from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
 from piano_app.domain.score.document.services.mutation.instructions.actions.material import (
     CreateRestCarrierAction,
     DeleteRestCarrierAction,
@@ -8,16 +7,15 @@ from piano_app.domain.score.document.services.mutation.instructions.actions.mate
 
 
 class CreateRestCarrierHandler:
-    """Creates a rest carrier on its owner (resolved from the environment)."""
+    """Creates a rest carrier on its owner."""
 
     def handle(
         self,
         *,
         action: CreateRestCarrierAction,
-        resolve: ResolveBound,
         sink: MutationSink,
     ) -> RestCarrier:
-        owner: CarrierOwner = resolve(action.owner)
+        owner: CarrierOwner = action.owner
         carrier: RestCarrier = RestCarrier.create(
             owner=owner,
             sink=sink,
@@ -32,7 +30,6 @@ class DeleteRestCarrierHandler:
         self,
         *,
         action: DeleteRestCarrierAction,
-        resolve: ResolveBound,
         sink: MutationSink,
     ) -> None:
         rest_carrier: RestCarrier = action.target

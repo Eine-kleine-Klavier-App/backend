@@ -1,120 +1,50 @@
-from piano_app.domain.score.document.models.material import NoteCarrier, Rest, RestCarrier
-from piano_app.domain.score.document.models.notation import RhythmicSize
-from piano_app.domain.score.document.models.structural.rhythm import (
-    LeafRhythmicContainer,
-    RhythmicContainer,
-    RhythmicContainerParent,
-)
-from piano_app.domain.score.document.services.helpers import find_container_at
-from piano_app.domain.score.document.services.mutation.engine.buffer import EmitBuffer
-from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
-from piano_app.domain.score.document.services.mutation.instructions import Bound, ResultRef
+from collections.abc import Sequence
+
+from piano_app.domain.score.document.models.material import Rest, RestCarrier
+from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.mutation.engine.typing import MutationAnalysis
 from piano_app.domain.score.document.services.mutation.instructions.actions.material import (
     CreateRestCarrierAction,
-    DeleteRestCarrierAction,
+)
+from piano_app.domain.score.document.services.mutation.instructions.requests.delete import (
+    Deletable,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.material import (
     CreateRestCarrierRequest,
-    DeleteNoteCarrierRequest,
-    DeleteRestCarrierRequest,
-    DeleteRestRequest,
-)
-from piano_app.domain.score.document.services.mutation.instructions.requests.relations import (
-    DeleteRelationRequest,
-)
-from piano_app.domain.score.document.services.mutation.instructions.requests.rhythmic import (
-    CreateLeafRequest,
 )
 
 
 class CreateRestCarrierAnalyzer:
-    """Decides the metric owner of a new rest carrier.
-
-    A same-size leaf is reused after deleting its current carrier; otherwise
-    creation of a new leaf is delegated.
-    """
+    """Creates a rest carrier on the leaf or grace item its request names; the leaf and its room
+    are decided above, by the spans, and the owner itself refuses a second carrier."""
 
     def analyze(
         self,
         *,
         request: CreateRestCarrierRequest,
-        resolver: ResolveBound,
-    ) -> EmitBuffer:
-        buffer: EmitBuffer = EmitBuffer(request=request)
-        # the scope may be a group created earlier in the same gesture
-        scope: RhythmicContainerParent = resolver(request.scope)
-
-        # only a leaf of the scope can be reused; a group starting there is a sibling the
-        # new leaf will displace
-        container: RhythmicContainer | None = find_container_at(
-            measure=request.measure,
-            position=request.position,
-            scope=scope,
-        )
-        leaf: LeafRhythmicContainer | None = (
-            container if isinstance(container, LeafRhythmicContainer) else None
+        geometry: ScoreGeometry,
+    ) -> MutationAnalysis:
+        yield CreateRestCarrierAction(
+            owner=request.owner,
         )
 
-        owner: Bound[LeafRhythmicContainer]
-        if (
-            leaf is not None
-            and leaf.written_size.value == request.written_value
-            and leaf.written_size.count == 1
-        ):
-            # if something is already attached to the leaf, delete it
-            if isinstance(leaf.carrier, NoteCarrier):
-                buffer.incorporate(item=DeleteNoteCarrierRequest(target=leaf.carrier))
-            elif isinstance(leaf.carrier, RestCarrier):  # this is unreachable at this point
-                buffer.incorporate(item=DeleteRestCarrierRequest(target=leaf.carrier))
 
-            owner = leaf
-        else:
-            owner = ResultRef[LeafRhythmicContainer]()
-            buffer.incorporate(
-                item=CreateLeafRequest(
-                    scope=scope,
-                    measure=request.measure,
-                    position=request.position,
-                    size=RhythmicSize(value=request.written_value, count=1),
-                    out=owner,
-                ),
-            )
-
-        buffer.incorporate(
-            item=CreateRestCarrierAction(
-                owner=owner,
-                out=request.out,
-            )
-        )
-
-        return buffer
-
-
-class DeleteRestCarrierAnalyzer:
+def cascade_rest_carrier(*, target: RestCarrier) -> Sequence[Deletable]:
     """Decides the rest carrier's deletion cascade.
 
     A group relation is deleted only when it cannot remain valid without this
     carrier; surviving groups lose the carrier during its detach. The optional
     rest is deleted before the carrier. Owner cleanup is deferred to the boundary.
     """
+    # decided before the first deletion: each relation's deletion removes it from the
+    # carrier's own list
+    doomed: list[Deletable] = []
+    for relation in target.carrier_group_relations:
+        if not relation.can_remove_carrier(carrier=target):
+            doomed.append(relation)
 
-    def analyze(
-        self,
-        *,
-        request: DeleteRestCarrierRequest,
-        resolver: ResolveBound,
-    ) -> EmitBuffer:
-        buffer: EmitBuffer = EmitBuffer(request=request)
-        rest_carrier: RestCarrier = request.target
+    rest: Rest | None = target.rest
+    if rest is not None:
+        doomed.append(rest)
 
-        for relation in rest_carrier.carrier_group_relations:
-            if not relation.can_remove_carrier(carrier=rest_carrier):
-                buffer.incorporate(item=DeleteRelationRequest(target=relation))
-
-        rest: Rest | None = rest_carrier.rest
-        if rest is not None:
-            buffer.incorporate(item=DeleteRestRequest(target=rest))
-
-        buffer.incorporate(item=DeleteRestCarrierAction(target=rest_carrier))
-
-        return buffer
+    return doomed
