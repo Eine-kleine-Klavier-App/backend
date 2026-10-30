@@ -1,26 +1,38 @@
-from piano_app.domain.score.document.models.relations import Relation
-from piano_app.domain.score.document.services.mutation.engine.buffer import EmitBuffer
-from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
+from piano_app.domain.score.document.models.material import CarrierOwner
+from piano_app.domain.score.document.models.relations.start_end import NoteToNoteRelation
+from piano_app.domain.score.document.models.structural.rhythm import LeafRhythmicContainer
+from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.helpers import is_touching
+from piano_app.domain.score.document.services.mutation.engine.typing import MutationAnalysis
 from piano_app.domain.score.document.services.mutation.instructions.actions.relations import (
-    DeleteRelationAction,
+    UpdateRelationStartAction,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.relations import (
-    DeleteRelationRequest,
+    UpdateRelationStartRequest,
 )
 
 
-class DeleteRelationAnalyzer:
-    """Decides direct deletion of a relation because it owns no child entities."""
+class UpdateRelationStartAnalyzer:
+    """Moves a note-to-note relation's start; the relation refuses a start it cannot take."""
 
     def analyze(
         self,
         *,
-        request: DeleteRelationRequest,
-        resolver: ResolveBound,
-    ) -> EmitBuffer:
-        buffer: EmitBuffer = EmitBuffer(request=request)
-        relation: Relation = request.target
+        request: UpdateRelationStartRequest,
+        geometry: ScoreGeometry,
+    ) -> MutationAnalysis:
+        yield UpdateRelationStartAction(target=request.target, start_note=request.start_note)
 
-        buffer.incorporate(item=DeleteRelationAction(target=relation))
 
-        return buffer
+def is_separated(*, geometry: ScoreGeometry, relation: NoteToNoteRelation) -> bool:
+    """True when the relation's notes are not neighbours (relation-guard). A relation with a
+    grace note is not judged: a grace note has no place of its own on the timeline."""
+    start_leaf: CarrierOwner = relation.start.note_carrier.owner
+    end_leaf: CarrierOwner = relation.end.note_carrier.owner
+    if not isinstance(start_leaf, LeafRhythmicContainer) or not isinstance(
+        end_leaf,
+        LeafRhythmicContainer,
+    ):
+        return False
+
+    return not is_touching(geometry=geometry, first=start_leaf, second=end_leaf)

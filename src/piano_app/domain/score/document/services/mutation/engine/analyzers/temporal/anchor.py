@@ -7,97 +7,112 @@ from piano_app.domain.score.document.models.structural.rhythm import (
     LeafRhythmicContainer,
     RhythmicContainer,
 )
+from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
 from piano_app.domain.score.document.services.helpers import find_anchor_at
-from piano_app.domain.score.document.services.mutation.engine.buffer import EmitBuffer
-from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
+from piano_app.domain.score.document.services.mutation.engine.typing import MutationAnalysis
 from piano_app.domain.score.document.services.mutation.instructions import MutationRejectedError
 from piano_app.domain.score.document.services.mutation.instructions.actions.temporal import (
     CreateTemporalAnchorAction,
-    DeleteTemporalAnchorAction,
+    UpdateTemporalAnchorAction,
 )
-from piano_app.domain.score.document.services.mutation.instructions.requests.rhythmic import (
-    DeleteLeafRequest,
-    DeleteRhythmicGroupRequest,
+from piano_app.domain.score.document.services.mutation.instructions.requests.delete import (
+    Deletable,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.temporal import (
     CreateTemporalAnchorRequest,
-    DeleteTemporalAnchorRequest,
+    UpdateTemporalAnchorRequest,
 )
 
 
 class CreateTemporalAnchorAnalyzer:
-    """Decides whether an anchor may be created at the requested measure position.
+    """Creates the anchor at the requested measure position.
 
-    Mirrors the measure's own guards as rejects: a position at or past the end of the
-    measure, or an existing anchor at that exact position, rejects the request;
-    otherwise a new anchor is created.
+    Mirrors the measure's own guard as a reject: a position at or past the end of the
+    measure rejects the request. A position is storage shared by everything starting
+    there, so whoever needs one finds the anchor already standing there before asking for
+    a new one; asking where one stands is a broken order.
     """
 
     def analyze(
         self,
         *,
         request: CreateTemporalAnchorRequest,
-        resolver: ResolveBound,
-    ) -> EmitBuffer:
-        buffer: EmitBuffer = EmitBuffer(request=request)
-
+        geometry: ScoreGeometry,
+    ) -> MutationAnalysis:
         if not request.measure.holds(position=request.position):
             raise MutationRejectedError("Position lies at or past the end of the measure.")
 
-        # check if anchor already exists at requested position
-        if (
-            find_anchor_at(
-                measure=request.measure,
-                position=request.position,
-            )
-            is not None
-        ):
-            raise MutationRejectedError("Anchor already exists.")
+        if find_anchor_at(measure=request.measure, position=request.position) is not None:
+            raise ValueError("An anchor already stands here: it is found, not created.")
 
-        buffer.incorporate(
-            item=CreateTemporalAnchorAction(
-                measure=request.measure,
-                position=request.position,
-                out=request.out,
-            ),
+        yield CreateTemporalAnchorAction(
+            measure=request.measure,
+            position=request.position,
         )
 
-        return buffer
 
-
-class DeleteTemporalAnchorAnalyzer:
+def cascade_anchor(*, target: TemporalAnchor) -> Sequence[Deletable]:
     """Decides the temporal anchor's deletion cascade.
 
     Every rhythmic container starting here is deleted before the anchor; attached
     contexts are not handled yet.
     """
+    # decided before the first deletion: each one detaches its containers from the anchor
+    # and from their parents, which the nesting check reads
+    containers: Sequence[RhythmicContainer] = target.containers
+    outermost: list[RhythmicContainer] = []
+    for container in containers:
+        # nested containers starting here too are removed by their parent's cascade
+        if isinstance(container.parent, GroupRhythmicContainer) and container.parent in containers:
+            continue
+
+        outermost.append(container)
+
+    doomed: list[Deletable] = []
+    for container in outermost:
+        if isinstance(container, LeafRhythmicContainer | GroupRhythmicContainer):
+            doomed.append(container)
+        else:
+            raise ValueError(f"Unknown container type: {type(container)}")
+
+    # TODO later
+    for _context in chain(target.starting_contexts, target.ending_contexts):
+        pass
+
+    return doomed
+
+
+class UpdateTemporalAnchorAnalyzer:
+    """Moves an anchor to another measure position; everything starting or ending at it
+    moves with it and keeps its identity.
+
+    Mirrors the measure's own guard as a reject: a position at or past the end of the
+    target measure rejects the request. Another anchor already at that position is a
+    broken order, not a choice: whoever moves anchors frees each place before it is taken.
+    """
 
     def analyze(
         self,
         *,
-        request: DeleteTemporalAnchorRequest,
-        resolver: ResolveBound,
-    ) -> EmitBuffer:
-        buffer: EmitBuffer = EmitBuffer(request=request)
+        request: UpdateTemporalAnchorRequest,
+        geometry: ScoreGeometry,
+    ) -> MutationAnalysis:
         anchor: TemporalAnchor = request.target
 
-        containers: Sequence[RhythmicContainer] = anchor.containers
-        for container in containers:
-            # nested containers starting here too are removed by their parent's cascade
-            if container.parent in containers:
-                continue
+        if not request.measure.holds(position=request.position):
+            raise MutationRejectedError("Position lies at or past the end of the measure.")
 
-            if isinstance(container, LeafRhythmicContainer):
-                buffer.incorporate(item=DeleteLeafRequest(target=container))
-            elif isinstance(container, GroupRhythmicContainer):
-                buffer.incorporate(item=DeleteRhythmicGroupRequest(target=container))
-            else:
-                raise ValueError(f"Unknown container type: {type(container)}")
+        existing: TemporalAnchor | None = find_anchor_at(
+            measure=request.measure,
+            position=request.position,
+        )
+        if existing is not None and existing is not anchor:
+            raise ValueError(
+                "An anchor is moved to a place another anchor still takes: it must be freed first."
+            )
 
-        # TODO later
-        for _context in chain(anchor.starting_contexts, anchor.ending_contexts):
-            pass
-
-        buffer.incorporate(item=DeleteTemporalAnchorAction(target=anchor))
-
-        return buffer
+        yield UpdateTemporalAnchorAction(
+            target=anchor,
+            measure=request.measure,
+            position=request.position,
+        )
