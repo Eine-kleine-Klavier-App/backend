@@ -1,100 +1,135 @@
-from piano_app.domain.score.document.models.material import NoteCarrier, RestCarrier
+from collections.abc import Sequence
+
+from piano_app.domain.score.document.models.material import Carrier, NoteCarrier, RestCarrier
 from piano_app.domain.score.document.models.structural import TemporalAnchor
 from piano_app.domain.score.document.models.structural.rhythm import (
     LeafRhythmicContainer,
+    RhythmicContainer,
     RhythmicContainerParent,
 )
-from piano_app.domain.score.document.services.mutation.engine.analyzers.rhythmic.room import (
-    make_room,
+from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.helpers import fits
+from piano_app.domain.score.document.services.mutation.engine.analyzers.base import (
+    find_or_create_anchor,
 )
-from piano_app.domain.score.document.services.mutation.engine.buffer import EmitBuffer
-from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
-from piano_app.domain.score.document.services.mutation.instructions import Bound
+from piano_app.domain.score.document.services.mutation.engine.analyzers.rhythmic.room import (
+    find_met_containers,
+)
+from piano_app.domain.score.document.services.mutation.engine.typing import MutationAnalysis
+from piano_app.domain.score.document.services.mutation.instructions import MutationRejectedError
 from piano_app.domain.score.document.services.mutation.instructions.actions.rhythmic import (
     CreateLeafAction,
-    DeleteLeafAction,
+    UpdateLeafSizeAction,
 )
-from piano_app.domain.score.document.services.mutation.instructions.requests.material import (
-    DeleteNoteCarrierRequest,
-    DeleteRestCarrierRequest,
+from piano_app.domain.score.document.services.mutation.instructions.requests.delete import (
+    Deletable,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.rhythmic import (
     CreateLeafRequest,
-    DeleteLeafRequest,
+    UpdateLeafSizeRequest,
 )
 
 
 class CreateLeafAnalyzer:
-    """Decides placement and displacement for a new metric leaf.
+    """Creates a metric leaf in the scope its request names, at a found or new anchor.
 
-    The leaf goes into the scope the request names — it never descends on its own, so
-    every piece of a sliced note stays in the scope its note was placed in. Spilling
-    across that scope rejects the request. The anchor is reused or created, and
-    intersecting sibling containers are deleted before the leaf is created.
+    The leaf never descends on its own, and it displaces nothing: what it would meet was
+    removed by whoever placed its spans, so a container of the scope still in its room is
+    a broken invariant, not a choice. Spilling across the scope rejects the request.
     """
 
     def analyze(
         self,
         *,
         request: CreateLeafRequest,
-        resolver: ResolveBound,
-    ) -> EmitBuffer:
-        buffer: EmitBuffer = EmitBuffer(request=request)
-        # the scope may be a group created earlier in the same gesture
-        scope: RhythmicContainerParent = resolver(request.scope)
+        geometry: ScoreGeometry,
+    ) -> MutationAnalysis:
+        scope: RhythmicContainerParent = request.scope
 
-        anchor: Bound[TemporalAnchor] = make_room(
-            buffer=buffer,
+        met: list[RhythmicContainer] = find_met_containers(
+            geometry=geometry,
             scope=scope,
             measure=request.measure,
             position=request.position,
-            size=request.size,
+            size=request.written_size,
+        )
+        if met:
+            raise ValueError(
+                f"A new leaf would meet {len(met)} container(s) of its scope: its room must "
+                "be cleared before it is created."
+            )
+
+        anchor: TemporalAnchor = yield from find_or_create_anchor(
+            measure=request.measure, position=request.position
         )
 
-        buffer.incorporate(
-            item=CreateLeafAction(
-                parent=scope,
-                anchor=anchor,
-                size=request.size,
-                out=request.out,
-            ),
+        yield CreateLeafAction(
+            parent=scope,
+            anchor=anchor,
+            size=request.written_size,
         )
 
-        return buffer
 
-
-class DeleteLeafAnalyzer:
+def cascade_leaf(*, target: LeafRhythmicContainer) -> Sequence[Deletable]:
     """Decides the metric leaf's deletion cascade.
 
-    An attached note or rest carrier is deleted before the leaf; grace-group
-    deletion is not implemented yet.
+    The groups of grace notes before and after it and an attached note or rest carrier are
+    deleted before the leaf.
+    """
+    doomed: list[Deletable] = []
+    if target.grace_before is not None:
+        doomed.append(target.grace_before)
+
+    if target.grace_after is not None:
+        doomed.append(target.grace_after)
+
+    carrier: Carrier | None = target.carrier
+    if carrier is not None:
+        if isinstance(carrier, NoteCarrier | RestCarrier):
+            doomed.append(carrier)
+        else:
+            raise ValueError(f"Unknown carrier type: {type(carrier)}")
+
+    return doomed
+
+
+class UpdateLeafSizeAnalyzer:
+    """Resizes a metric leaf in place; its carrier, its content and its anchor stay.
+
+    Like a new leaf, it displaces nothing: what its new room would meet was removed by
+    whoever resized its span, so another container of its scope still there is a broken
+    invariant. Spilling across the scope rejects the request.
     """
 
     def analyze(
         self,
         *,
-        request: DeleteLeafRequest,
-        resolver: ResolveBound,
-    ) -> EmitBuffer:
-        buffer: EmitBuffer = EmitBuffer(request=request)
+        request: UpdateLeafSizeRequest,
+        geometry: ScoreGeometry,
+    ) -> MutationAnalysis:
         leaf: LeafRhythmicContainer = request.target
 
-        # TODO later
-        if leaf.grace_before is not None:
-            pass
+        met: list[RhythmicContainer] = [
+            container
+            for container in find_met_containers(
+                geometry=geometry,
+                scope=leaf.parent,
+                measure=leaf.anchor.measure,
+                position=leaf.anchor.position,
+                size=request.written_size,
+            )
+            if container is not leaf
+        ]
+        if met:
+            raise ValueError(
+                f"A resized leaf would meet {len(met)} container(s) of its scope: its room "
+                "must be cleared before it is resized."
+            )
 
-        if leaf.grace_after is not None:
-            pass
+        # the grace notes of the leaf take their time from it: it cannot shrink below what they take
+        if not fits(leaf=leaf, length=request.written_size.fraction):
+            raise MutationRejectedError(
+                "The leaf's grace notes would no longer fit in the time it is resized to."
+            )
 
-        carrier = leaf.carrier
-        if carrier is not None:
-            if isinstance(carrier, NoteCarrier):
-                buffer.incorporate(item=DeleteNoteCarrierRequest(target=carrier))
-            elif isinstance(carrier, RestCarrier):
-                buffer.incorporate(item=DeleteRestCarrierRequest(target=carrier))
-            else:
-                raise ValueError(f"Unknown carrier type: {type(carrier)}")
-
-        buffer.incorporate(item=DeleteLeafAction(target=leaf))
-
-        return buffer
+        yield UpdateLeafSizeAction(target=leaf, size=request.written_size)

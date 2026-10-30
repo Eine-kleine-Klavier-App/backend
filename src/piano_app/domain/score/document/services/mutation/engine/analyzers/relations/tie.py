@@ -1,43 +1,51 @@
 from piano_app.domain.score.document.models.material import CarrierOwner, Note
 from piano_app.domain.score.document.models.relations import Tie
-from piano_app.domain.score.document.models.structural import Voice
 from piano_app.domain.score.document.models.structural.rhythm import LeafRhythmicContainer
-from piano_app.domain.score.document.services.geometry import Span
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
-from piano_app.domain.score.document.services.helpers import iter_leaves, voice_of
-from piano_app.domain.score.document.services.mutation.engine.buffer import EmitBuffer
-from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
+from piano_app.domain.score.document.services.helpers import is_touching
+from piano_app.domain.score.document.services.mutation.engine.analyzers.relations.relation import (
+    is_separated,
+)
+from piano_app.domain.score.document.services.mutation.engine.typing import MutationAnalysis
 from piano_app.domain.score.document.services.mutation.instructions import MutationRejectedError
 from piano_app.domain.score.document.services.mutation.instructions.actions.relations import (
     CreateTieAction,
 )
+from piano_app.domain.score.document.services.mutation.instructions.requests.delete import (
+    DeleteRequest,
+)
 from piano_app.domain.score.document.services.mutation.instructions.requests.relations import (
     CreateTieRequest,
 )
+from piano_app.domain.score.document.services.pitch import PitchResolutionError
+from piano_app.domain.score.document.services.pitch.score_pitch import ScorePitch
+
+
+def check_tie(*, relation: Tie, geometry: ScoreGeometry) -> MutationAnalysis:
+    """Removes a tie whose notes are no longer neighbours (relation-guard).
+
+    Decided before the first yield, on the live document.
+    """
+    if is_separated(geometry=geometry, relation=relation):
+        yield DeleteRequest(target=relation)
 
 
 class CreateTieAnalyzer:
     """Decides whether two metric notes may be connected by a tie.
 
-    Their carriers must be consecutive and touching in one voice, with the
-    corresponding outgoing and incoming tie ends available. Equal-pitch
-    validation is deferred until note pitch is implemented.
+    The notes must touch in one voice, with the corresponding outgoing and incoming tie
+    ends available, and sound the same.
     """
 
     def analyze(
         self,
         *,
         request: CreateTieRequest,
-        resolver: ResolveBound,
-    ) -> EmitBuffer:
-        buffer: EmitBuffer = EmitBuffer(request=request)
-
-        # TODO
-        #  PITCH-VALIDATION (deferred — pitch is not in v1): a tie is only valid between
-        #  two notes of the SAME pitch; reject otherwise once pitch is implemented.
-
-        start_note: Note = resolver(request.start_note)
-        end_note: Note = resolver(request.end_note)
+        geometry: ScoreGeometry,
+        pitch: ScorePitch,
+    ) -> MutationAnalysis:
+        start_note: Note = request.start_note
+        end_note: Note = request.end_note
 
         # other ties check
         if any(
@@ -61,31 +69,22 @@ class CreateTieAnalyzer:
         ):
             raise MutationRejectedError("Ties involving grace notes are not yet supported.")
 
-        # same voice check
-        start_voice: Voice = voice_of(start_leaf)
-        end_voice: Voice = voice_of(end_leaf)
-        if start_voice is not end_voice:
-            raise MutationRejectedError("Ties are allowed only between notes in the same voice.")
-
         # neighbourhood check
-        leaves: list[LeafRhythmicContainer] = iter_leaves(start_voice)
-        start_index: int = leaves.index(start_leaf)
-        if start_index + 1 == len(leaves) or leaves[start_index + 1] is not end_leaf:
-            raise MutationRejectedError("Ties are allowed only between adjacent notes.")
+        if not is_touching(geometry=geometry, first=start_leaf, second=end_leaf):
+            raise MutationRejectedError("Tied notes must touch in one voice.")
 
-        # prevent cases if there is a gap between the two notes
-        geometry: ScoreGeometry = ScoreGeometry(origin=start_leaf.anchor.measure)
-        start_span: Span = geometry.global_span_of(container=start_leaf)
-        end_span: Span = geometry.global_span_of(container=end_leaf)
-        if start_span.end != end_span.start:
-            raise MutationRejectedError("Tied notes must touch on the voice timeline.")
+        # a tie joins notes of one sounding pitch
+        try:
+            sounds_alike: bool = (
+                pitch.pitch_of(note=start_note).midi_note == pitch.pitch_of(note=end_note).midi_note
+            )
+        except PitchResolutionError as error:
+            raise MutationRejectedError("The pitch of a tied note cannot be resolved.") from error
 
-        buffer.incorporate(
-            item=CreateTieAction(
-                start_note=start_note,
-                end_note=end_note,
-                out=request.out,
-            ),
+        if not sounds_alike:
+            raise MutationRejectedError("Tied notes must sound the same.")
+
+        yield CreateTieAction(
+            start_note=start_note,
+            end_note=end_note,
         )
-
-        return buffer

@@ -1,27 +1,27 @@
 from piano_app.domain.score.document.models.material import CarrierOwner, NoteCarrier
 from piano_app.domain.score.document.models.mutation_sink import MutationSink
-from piano_app.domain.score.document.services.mutation.engine.resolver import ResolveBound
 from piano_app.domain.score.document.services.mutation.instructions.actions.material import (
     CreateNoteCarrierAction,
     DeleteNoteCarrierAction,
-    UpdateStemAction,
+    UpdateArticulationAction,
+    UpdateOrnamentAction,
 )
 
 
 class CreateNoteCarrierHandler:
-    """Creates a note carrier on its owner (resolved from the environment)."""
+    """Creates a note carrier on its owner."""
 
     def handle(
         self,
         *,
         action: CreateNoteCarrierAction,
-        resolve: ResolveBound,
         sink: MutationSink,
     ) -> NoteCarrier:
-        owner: CarrierOwner = resolve(action.owner)
+        owner: CarrierOwner = action.owner
         carrier: NoteCarrier = NoteCarrier.create(
             owner=owner,
-            articulation=action.articulation,
+            articulations=action.articulations,
+            ornament=action.ornament,
             sink=sink,
         )
         return carrier
@@ -34,7 +34,6 @@ class DeleteNoteCarrierHandler:
         self,
         *,
         action: DeleteNoteCarrierAction,
-        resolve: ResolveBound,
         sink: MutationSink,
     ) -> None:
         note_carrier: NoteCarrier = action.target
@@ -42,16 +41,29 @@ class DeleteNoteCarrierHandler:
         return None
 
 
-class UpdateStemHandler:
-    """Sets how a note carrier's stem is drawn."""
+class UpdateArticulationHandler:
+    """Sets the marks of articulation a note carrier has."""
 
     def handle(
         self,
         *,
-        action: UpdateStemAction,
-        resolve: ResolveBound,
+        action: UpdateArticulationAction,
         sink: MutationSink,
     ) -> None:
         note_carrier: NoteCarrier = action.target
-        note_carrier.set_stem(stem=action.stem, sink=sink)
+        note_carrier.set_articulations(articulations=action.articulations, sink=sink)
+        return None
+
+
+class UpdateOrnamentHandler:
+    """Sets a note carrier's ornament."""
+
+    def handle(
+        self,
+        *,
+        action: UpdateOrnamentAction,
+        sink: MutationSink,
+    ) -> None:
+        note_carrier: NoteCarrier = action.target
+        note_carrier.set_ornament(ornament=action.ornament, sink=sink)
         return None

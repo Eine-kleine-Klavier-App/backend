@@ -1,5 +1,16 @@
-from .note import CreateNoteHandler, DeleteNoteHandler
-from .note_carrier import CreateNoteCarrierHandler, DeleteNoteCarrierHandler, UpdateStemHandler
+from .note import (
+    CreateNoteHandler,
+    DeleteNoteHandler,
+    UpdateFingeringHandler,
+    UpdateNotePitchHandler,
+    UpdateStaffStepHandler,
+)
+from .note_carrier import (
+    CreateNoteCarrierHandler,
+    DeleteNoteCarrierHandler,
+    UpdateArticulationHandler,
+    UpdateOrnamentHandler,
+)
 from .rest import CreateRestHandler, DeleteRestHandler
 from .rest_carrier import CreateRestCarrierHandler, DeleteRestCarrierHandler
 
@@ -12,5 +23,9 @@ __all__ = (
     "DeleteNoteHandler",
     "DeleteRestCarrierHandler",
     "DeleteRestHandler",
-    "UpdateStemHandler",
+    "UpdateArticulationHandler",
+    "UpdateFingeringHandler",
+    "UpdateNotePitchHandler",
+    "UpdateOrnamentHandler",
+    "UpdateStaffStepHandler",
 )
