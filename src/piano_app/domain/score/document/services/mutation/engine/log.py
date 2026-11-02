@@ -8,6 +8,14 @@ class _JournalEntry(Protocol):
     def undo(self) -> None: ...  # undo: revert to the previous state
 
 
+class ChangeListener(Protocol):
+    """Told about each change right after the journal has recorded it."""
+
+    def on_set(self, target: object, field_name: str) -> None: ...
+
+    def on_list(self, owner: object, field_name: str, item: Any) -> None: ...
+
+
 @dataclass(slots=True, kw_only=True)
 class _SetField:
     target: object
@@ -24,6 +32,8 @@ class _SetField:
 
 @dataclass(slots=True, kw_only=True)
 class _ListInsert:
+    owner: object
+    field_name: str
     target: list[Any]
     index: int
     item: Any
@@ -37,6 +47,8 @@ class _ListInsert:
 
 @dataclass(slots=True, kw_only=True)
 class _ListRemove:
+    owner: object
+    field_name: str
     target: list[Any]
     index: int
     item: Any
@@ -60,8 +72,23 @@ class MutationLog:
 
     def __init__(self) -> None:
         self._entries: list[_JournalEntry] = []
+        self._listeners: list[ChangeListener] = []
+
+    @property
+    def has_changes(self) -> bool:
+        return bool(self._entries)
+
+    def subscribe(self, listener: ChangeListener) -> None:
+        """Tell ``listener`` of every change recorded from now on.
+
+        It sees the model as the change left it. Rollback and reapply notify no one: an
+        index lives for one transaction and is dropped with it.
+        """
+        self._listeners.append(listener)
 
     def set_field(self, target: object, field_name: str, value: object) -> None:
+        if getattr(target, field_name) == value:
+            return
         entry: _SetField = _SetField(
             target=target,
             field_name=field_name,
@@ -70,22 +97,48 @@ class MutationLog:
         )
         entry.apply()
         self._entries.append(entry)
+        for listener in self._listeners:
+            listener.on_set(target, field_name)
 
-    def list_append(self, target: list[Any], item: Any) -> None:
-        entry: _ListInsert = _ListInsert(target=target, index=len(target), item=item)
+    def list_append(self, owner: object, field_name: str, item: Any) -> None:
+        target: list[Any] = getattr(owner, field_name)
+        entry: _ListInsert = _ListInsert(
+            owner=owner,
+            field_name=field_name,
+            target=target,
+            index=len(target),
+            item=item,
+        )
         entry.apply()
         self._entries.append(entry)
+        self._notify_list(owner=owner, field_name=field_name, item=item)
 
-    def list_insert(self, target: list[Any], index: int, item: Any) -> None:
-        entry: _ListInsert = _ListInsert(target=target, index=index, item=item)
+    def list_insert(self, owner: object, field_name: str, index: int, item: Any) -> None:
+        target: list[Any] = getattr(owner, field_name)
+        entry: _ListInsert = _ListInsert(
+            owner=owner,
+            field_name=field_name,
+            target=target,
+            index=index,
+            item=item,
+        )
         entry.apply()
         self._entries.append(entry)
+        self._notify_list(owner=owner, field_name=field_name, item=item)
 
-    def list_remove(self, target: list[Any], item: Any) -> None:
+    def list_remove(self, owner: object, field_name: str, item: Any) -> None:
+        target: list[Any] = getattr(owner, field_name)
         index: int = target.index(item)
-        entry: _ListRemove = _ListRemove(target=target, index=index, item=item)
+        entry: _ListRemove = _ListRemove(
+            owner=owner,
+            field_name=field_name,
+            target=target,
+            index=index,
+            item=item,
+        )
         entry.apply()
         self._entries.append(entry)
+        self._notify_list(owner=owner, field_name=field_name, item=item)
 
     def rollback(self) -> None:
         """Revert the journal (one gesture). Replay every entry's ``undo`` in reverse order.
@@ -100,3 +153,7 @@ class MutationLog:
         """Re-do the journal (one gesture). Replay every entry's ``apply`` in original order."""
         for entry in self._entries:
             entry.apply()
+
+    def _notify_list(self, *, owner: object, field_name: str, item: Any) -> None:
+        for listener in self._listeners:
+            listener.on_list(owner, field_name, item)
