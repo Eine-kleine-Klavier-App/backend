@@ -7,6 +7,7 @@ from piano_app.adapters.outbound.shared.codec import ScoreDocumentCodec
 
 from .author_repository import PostgresAuthorRepository
 from .catalog_query import PostgresScoreCatalogQuery
+from .collection_repository import PostgresCollectionRepository
 from .score_repository import PostgresScoreRepository
 
 
@@ -30,6 +31,9 @@ class PostgresScoreUoW:
         self._author_repository: PostgresAuthorRepository = PostgresAuthorRepository(
             session=self._session,
         )
+        self._collection_repository: PostgresCollectionRepository = PostgresCollectionRepository(
+            session=self._session,
+        )
 
     @property
     def score_repository(self) -> PostgresScoreRepository:
@@ -42,6 +46,10 @@ class PostgresScoreUoW:
     @property
     def author_repository(self) -> PostgresAuthorRepository:
         return self._author_repository
+
+    @property
+    def collection_repository(self) -> PostgresCollectionRepository:
+        return self._collection_repository
 
     async def __aenter__(self) -> Self:
         return self

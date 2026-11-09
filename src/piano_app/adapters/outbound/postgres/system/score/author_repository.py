@@ -10,7 +10,7 @@ class PostgresAuthorRepository:
         self._session: AsyncSession = session
 
     async def get(self, *, author_id: str) -> AuthorProfile | None:
-        statement: Select[tuple[UserModel]] = select(UserModel).where(UserModel.id == author_id)
+        statement: Select[UserModel] = select(UserModel).where(UserModel.id == author_id)
         result: ScalarResult[UserModel] = await self._session.scalars(statement)
         user: UserModel | None = result.one_or_none()
 

@@ -2,11 +2,15 @@ from collections.abc import Callable
 from types import TracebackType
 from typing import Protocol, Self
 
+from .credential_repository import CredentialRepository
 from .identity_repository import IdentityRepository
 from .refresh_session_repository import RefreshSessionRepository
 
 
 class AuthUow(Protocol):
+    @property
+    def credential_repository(self) -> CredentialRepository: ...
+
     @property
     def refresh_session_repository(self) -> RefreshSessionRepository: ...
 
