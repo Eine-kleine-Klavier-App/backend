@@ -121,6 +121,17 @@ class PostgresRefreshSessionRepository:
         )
         await self._session.execute(statement)
 
+    async def revoke_others(self, *, user_id: str, keep_credential: str | None) -> None:
+        statement: Delete = delete(AuthSessionModel).where(AuthSessionModel.user_id == user_id)
+        if keep_credential is not None:
+            try:
+                kept: _RefreshCredential = _RefreshCredential.parse(credential=keep_credential)
+            except ValueError:
+                pass  # malformed counts as "keep nothing"
+            else:
+                statement = statement.where(AuthSessionModel.id != kept.session_id)
+        await self._session.execute(statement)
+
     @staticmethod
     def _hash(*, secret: str) -> bytes:
         return hashlib.sha256(secret.encode()).digest()

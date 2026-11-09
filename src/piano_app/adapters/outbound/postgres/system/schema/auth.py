@@ -24,6 +24,18 @@ class UserIdentityModel(Base):
     )
 
 
+class UserCredentialModel(Base):
+    __tablename__ = "user_credentials"
+
+    user_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    password_hash: Mapped[bytes] = mapped_column(LargeBinary)
+    password_salt: Mapped[bytes] = mapped_column(LargeBinary)
+
+
 class AuthSessionModel(Base):
     __tablename__ = "auth_sessions"
 

@@ -28,29 +28,30 @@ class PostgresScoreRepository:
         self._codec: ScoreDocumentCodec = codec
 
     async def get(self, *, score_id: str) -> Score | None:
-        # get with the lattest version by default
-        statement: Select[tuple[ScoreMetaModel, ScoreContentModel]] = (
+        snapshot = await self.get_versioned(score_id=score_id)
+        return None if snapshot is None else snapshot[0]
+
+    async def get_versioned(self, *, score_id: str) -> tuple[Score, int] | None:
+        statement: Select[ScoreMetaModel, ScoreContentModel] = (
             select(ScoreMetaModel, ScoreContentModel)
             .join(ScoreContentModel, ScoreContentModel.score_id == ScoreMetaModel.id)
             .where(ScoreMetaModel.id == score_id)
             .order_by(ScoreContentModel.version.desc())
             .limit(1)
         )
-        result: Result[tuple[ScoreMetaModel, ScoreContentModel]] = await self._session.execute(
-            statement
-        )
-        row: Row[tuple[ScoreMetaModel, ScoreContentModel]] | None = result.one_or_none()
+        result: Result[ScoreMetaModel, ScoreContentModel] = await self._session.execute(statement)
+        row: Row[ScoreMetaModel, ScoreContentModel] | None = result.one_or_none()
 
         if row is None:
             return None
 
-        return self._to_domain(
-            score_model=row[0],
-            content_model=row[1],
+        return (
+            self._to_domain(score_model=row[0], content_model=row[1]),
+            row[1].version,
         )
 
     async def get_meta(self, *, score_id: str) -> ScoreMeta | None:
-        statement: Select[tuple[ScoreMetaModel]] = select(ScoreMetaModel).where(
+        statement: Select[ScoreMetaModel] = select(ScoreMetaModel).where(
             ScoreMetaModel.id == score_id
         )
 
@@ -62,12 +63,22 @@ class PostgresScoreRepository:
 
         return self._to_meta(score_model=score_model)
 
+    async def get_content_document(self, *, content_id: str) -> ScoreDocument | None:
+        content_model: ScoreContentModel | None = await self._session.get(
+            ScoreContentModel, content_id
+        )
+
+        if content_model is None:
+            return None
+
+        return self._codec.deserialize(content_model.document)
+
     async def exists(self, *, score_id: str) -> bool:
-        statement: Select[tuple[bool]] = select(
+        statement: Select[bool] = select(
             select(ScoreMetaModel.id).where(ScoreMetaModel.id == score_id).exists()
         )
 
-        result: Result[tuple[bool]] = await self._session.execute(statement)
+        result: Result[bool] = await self._session.execute(statement)
 
         return result.scalar_one()
 
@@ -109,7 +120,7 @@ class PostgresScoreRepository:
         if score_model is None:
             raise ScoreRepositoryNotFoundError(score_id=score_id)
 
-        statement: Select[tuple[ScoreContentModel]] = (
+        statement: Select[ScoreContentModel] = (
             select(ScoreContentModel)
             .where(ScoreContentModel.score_id == score_id)
             .order_by(ScoreContentModel.version.desc())

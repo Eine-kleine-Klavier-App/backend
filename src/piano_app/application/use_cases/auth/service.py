@@ -4,6 +4,7 @@ from piano_app.application.errors import (
     IdentityAlreadyLinkedError,
     InvalidAccessTokenError,
     InvalidExternalCredentialError,
+    InvalidPasswordCredentialsError,
     InvalidRefreshTokenError,
     UsernameConflictError,
     UsernameRequiredError,
@@ -16,6 +17,8 @@ from piano_app.application.ports.auth import (
     ExternalCredentialVerificationError,
     ExternalIdentityVerifier,
     IdentityLinkConflictError,
+    PasswordDigest,
+    PasswordHasher,
     RotatedRefreshSession,
     UsernameAlreadyExistsError,
     UserProfile,
@@ -34,11 +37,14 @@ class AuthService:
         self,
         *,
         identity_verifier: ExternalIdentityVerifier,
+        password_hasher: PasswordHasher,
         access_tokens: AccessTokenService,
         auth_uow_factory: AuthUoWFactory,
     ) -> None:
         self._identity_verifier: ExternalIdentityVerifier = identity_verifier
+        self._password_hasher: PasswordHasher = password_hasher
         self._access_tokens: AccessTokenService = access_tokens
+        self._dummy_digest: PasswordDigest | None = None
         self._auth_uow_factory: AuthUoWFactory = auth_uow_factory
 
     # If the identity already resolves to a user, `username` is intentionally
@@ -91,6 +97,90 @@ class AuthService:
             access_token=self._access_tokens.issue(user_id=user_id),
             refresh_credential=refresh_credential,
         )
+
+    async def register(self, *, username: str, password: str) -> AuthSession:
+        digest: PasswordDigest = await self._password_hasher.hash(password=password)
+
+        async with self._auth_uow_factory() as uow:
+            try:
+                user: UserProfile = await uow.identity_repository.create_user(username=username)
+            except UsernameAlreadyExistsError as error:
+                raise UsernameConflictError(username=error.username) from error
+
+            await uow.credential_repository.set_password(user_id=user.user_id, digest=digest)
+            refresh_credential: str = await uow.refresh_session_repository.create(
+                user_id=user.user_id
+            )
+
+            await uow.commit()
+
+        return AuthSession(
+            access_token=self._access_tokens.issue(user_id=user.user_id),
+            refresh_credential=refresh_credential,
+        )
+
+    # "No such user", "no password set" and "wrong password" are deliberately one error, and cost
+    # one password verification each, so the response time does not reveal which usernames exist.
+    async def login(self, *, username: str, password: str) -> AuthSession:
+        async with self._auth_uow_factory() as uow:
+            user_id: str | None = await uow.identity_repository.find_user_id_by_username(
+                username=username
+            )
+            digest: PasswordDigest | None = None
+            if user_id is not None:
+                digest = await uow.credential_repository.find(user_id=user_id)
+
+            if user_id is None or digest is None:
+                if self._dummy_digest is None:
+                    self._dummy_digest = await self._password_hasher.hash(password="")
+                await self._password_hasher.verify(password=password, digest=self._dummy_digest)
+                raise InvalidPasswordCredentialsError
+
+            if not await self._password_hasher.verify(password=password, digest=digest):
+                raise InvalidPasswordCredentialsError
+
+            refresh_credential: str = await uow.refresh_session_repository.create(user_id=user_id)
+
+            await uow.commit()
+
+        return AuthSession(
+            access_token=self._access_tokens.issue(user_id=user_id),
+            refresh_credential=refresh_credential,
+        )
+
+    # Changing a password signs the account out everywhere except the session that changed it.
+    async def set_password(
+        self,
+        *,
+        user_id: str,
+        password: str,
+        keep_credential: str | None,
+    ) -> None:
+        digest: PasswordDigest = await self._password_hasher.hash(password=password)
+
+        async with self._auth_uow_factory() as uow:
+            await uow.credential_repository.set_password(user_id=user_id, digest=digest)
+            await uow.refresh_session_repository.revoke_others(
+                user_id=user_id,
+                keep_credential=keep_credential,
+            )
+
+            await uow.commit()
+
+    # Never merges accounts: an identity that is already linked to anyone is refused.
+    async def link_google(self, *, user_id: str, credential: str) -> None:
+        try:
+            identity: VerifiedIdentity = await self._identity_verifier.verify(credential=credential)
+        except ExternalCredentialVerificationError as error:
+            raise InvalidExternalCredentialError from error
+
+        async with self._auth_uow_factory() as uow:
+            try:
+                await uow.identity_repository.add_identity(user_id=user_id, identity=identity)
+            except IdentityLinkConflictError as error:
+                raise IdentityAlreadyLinkedError from error
+
+            await uow.commit()
 
     def authenticate_access_token(self, *, token: str | None) -> str:
         if token is None:
