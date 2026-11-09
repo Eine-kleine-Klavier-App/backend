@@ -1,4 +1,5 @@
 from .access_token_service import AccessToken, AccessTokenService, AccessTokenVerificationError
+from .credential_repository import CredentialRepository
 from .external_identity_verifier import (
     ExternalCredentialVerificationError,
     ExternalIdentityVerifier,
@@ -10,6 +11,7 @@ from .identity_repository import (
     UsernameAlreadyExistsError,
     UserProfile,
 )
+from .password_hasher import PasswordDigest, PasswordHasher
 from .refresh_session_repository import (
     RefreshSessionRepository,
     RotatedRefreshSession,
@@ -22,10 +24,13 @@ __all__ = (
     "AccessTokenVerificationError",
     "AuthUoWFactory",
     "AuthUow",
+    "CredentialRepository",
     "ExternalCredentialVerificationError",
     "ExternalIdentityVerifier",
     "IdentityLinkConflictError",
     "IdentityRepository",
+    "PasswordDigest",
+    "PasswordHasher",
     "RefreshSessionRepository",
     "RotatedRefreshSession",
     "UserProfile",

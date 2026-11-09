@@ -4,6 +4,7 @@ from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from .credential_repository import PostgresCredentialRepository
 from .identity_repository import PostgresIdentityRepository
 from .session_repository import PostgresRefreshSessionRepository
 
@@ -20,6 +21,9 @@ class PostgresAuthUoW:
         self._identity_repository: PostgresIdentityRepository = PostgresIdentityRepository(
             session=self._session,
         )
+        self._credential_repository: PostgresCredentialRepository = PostgresCredentialRepository(
+            session=self._session,
+        )
         self._refresh_session_repository: PostgresRefreshSessionRepository = (
             PostgresRefreshSessionRepository(
                 session=self._session,
@@ -30,6 +34,10 @@ class PostgresAuthUoW:
     @property
     def identity_repository(self) -> PostgresIdentityRepository:
         return self._identity_repository
+
+    @property
+    def credential_repository(self) -> PostgresCredentialRepository:
+        return self._credential_repository
 
     @property
     def refresh_session_repository(self) -> PostgresRefreshSessionRepository:

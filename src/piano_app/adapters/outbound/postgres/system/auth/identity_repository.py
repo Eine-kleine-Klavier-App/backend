@@ -1,4 +1,4 @@
-from sqlalchemy import ScalarResult, Select, select
+from sqlalchemy import ScalarResult, Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,6 +45,14 @@ class PostgresIdentityRepository:
         statement: Select[tuple[str]] = select(UserIdentityModel.user_id).where(
             UserIdentityModel.authority == identity.authority,
             UserIdentityModel.subject == identity.subject,
+        )
+        result: ScalarResult[str] = await self._session.scalars(statement)
+
+        return result.one_or_none()
+
+    async def find_user_id_by_username(self, *, username: str) -> str | None:
+        statement: Select[tuple[str]] = select(UserModel.id).where(
+            func.lower(UserModel.username) == username.lower()
         )
         result: ScalarResult[str] = await self._session.scalars(statement)
 
