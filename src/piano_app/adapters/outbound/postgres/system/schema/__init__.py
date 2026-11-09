@@ -1,4 +1,4 @@
-from .auth import AuthSessionModel, UserIdentityModel
+from .auth import AuthSessionModel, UserCredentialModel, UserIdentityModel
 from .base import Base, metadata
 from .core import (
     CollectionModel,
@@ -15,6 +15,7 @@ __all__ = (
     "CollectionScoreModel",
     "ScoreContentModel",
     "ScoreMetaModel",
+    "UserCredentialModel",
     "UserIdentityModel",
     "UserModel",
     "metadata",

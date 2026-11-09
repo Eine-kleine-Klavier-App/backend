@@ -7,7 +7,13 @@ from piano_app.application.errors import InvalidRefreshTokenError
 from piano_app.application.ports.auth import UserProfile
 from piano_app.application.use_cases.auth import AuthService, AuthSession
 
-from .requests import GoogleSignInRequest
+from .requests import (
+    GoogleLinkRequest,
+    GoogleSignInRequest,
+    PasswordLoginRequest,
+    PasswordRegisterRequest,
+    SetPasswordRequest,
+)
 from .responses import AccessTokenResponse, CurrentUserResponse
 
 _REFRESH_COOKIE_NAME: str = "piano_refresh_token"
@@ -79,6 +85,52 @@ def build_session_router(
         )
         refresh_cookie.set(response=response, session=session)
         return AccessTokenResponse.from_session(session)
+
+    @router.post(path="/register", status_code=200)
+    async def register(
+        request: PasswordRegisterRequest,
+        response: Response,
+    ) -> AccessTokenResponse:
+        session: AuthSession = await service.register(
+            username=request.username,
+            password=request.password,
+        )
+        refresh_cookie.set(response=response, session=session)
+        return AccessTokenResponse.from_session(session)
+
+    @router.post(path="/login", status_code=200)
+    async def login(
+        request: PasswordLoginRequest,
+        response: Response,
+    ) -> AccessTokenResponse:
+        session: AuthSession = await service.login(
+            username=request.username,
+            password=request.password,
+        )
+        refresh_cookie.set(response=response, session=session)
+        return AccessTokenResponse.from_session(session)
+
+    @router.post(path="/password", status_code=204)
+    async def set_password(
+        request: SetPasswordRequest,
+        user_id: Annotated[str, Depends(current_user)],
+        refresh_credential: Annotated[
+            str | None,
+            Cookie(alias=_REFRESH_COOKIE_NAME),
+        ] = None,
+    ) -> None:
+        await service.set_password(
+            user_id=user_id,
+            password=request.password,
+            keep_credential=refresh_credential,
+        )
+
+    @router.post(path="/google/link", status_code=204)
+    async def link_google(
+        request: GoogleLinkRequest,
+        user_id: Annotated[str, Depends(current_user)],
+    ) -> None:
+        await service.link_google(user_id=user_id, credential=request.id_token)
 
     @router.post(path="/refresh", status_code=200)
     async def refresh(

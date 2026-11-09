@@ -1,4 +1,5 @@
 from enum import StrEnum
+from pathlib import Path
 from typing import ClassVar, Literal
 
 from pydantic import SecretStr
@@ -58,3 +59,8 @@ class Settings(BaseSettings):
 
     # --- HTTP: CORS.
     CORS_ORIGINS: tuple[str, ...] = ()
+
+    # --- Server playback; no SoundFont configured means a 503 on playback requests.
+    PLAYBACK_SOUNDFONT: Path | None = None
+    PLAYBACK_FLUIDSYNTH_LIBRARY: str | None = None
+    PLAYBACK_GAIN: float = 0.8

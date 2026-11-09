@@ -28,7 +28,10 @@ class PostgresScoreRepository:
         self._codec: ScoreDocumentCodec = codec
 
     async def get(self, *, score_id: str) -> Score | None:
-        # get with the lattest version by default
+        snapshot = await self.get_versioned(score_id=score_id)
+        return None if snapshot is None else snapshot[0]
+
+    async def get_versioned(self, *, score_id: str) -> tuple[Score, int] | None:
         statement: Select[tuple[ScoreMetaModel, ScoreContentModel]] = (
             select(ScoreMetaModel, ScoreContentModel)
             .join(ScoreContentModel, ScoreContentModel.score_id == ScoreMetaModel.id)
@@ -44,9 +47,9 @@ class PostgresScoreRepository:
         if row is None:
             return None
 
-        return self._to_domain(
-            score_model=row[0],
-            content_model=row[1],
+        return (
+            self._to_domain(score_model=row[0], content_model=row[1]),
+            row[1].version,
         )
 
     async def get_meta(self, *, score_id: str) -> ScoreMeta | None:
@@ -61,6 +64,16 @@ class PostgresScoreRepository:
             return None
 
         return self._to_meta(score_model=score_model)
+
+    async def get_content_document(self, *, content_id: str) -> ScoreDocument | None:
+        content_model: ScoreContentModel | None = await self._session.get(
+            ScoreContentModel, content_id
+        )
+
+        if content_model is None:
+            return None
+
+        return self._codec.deserialize(content_model.document)
 
     async def exists(self, *, score_id: str) -> bool:
         statement: Select[tuple[bool]] = select(

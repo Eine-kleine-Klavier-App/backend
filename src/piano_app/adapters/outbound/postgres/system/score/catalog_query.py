@@ -5,7 +5,12 @@ from typing import Final
 from sqlalchemy import Result, Row, Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from piano_app.adapters.outbound.postgres.system.schema import ScoreMetaModel, UserModel
+from piano_app.adapters.outbound.postgres.system.schema import (
+    CollectionScoreModel,
+    ScoreContentModel,
+    ScoreMetaModel,
+    UserModel,
+)
 from piano_app.application.ports.score.catalog_query import ScoreMetaItem
 from piano_app.application.ports.shared.pagination import Page
 
@@ -16,6 +21,14 @@ from .helpers.visibility import is_authored_by, is_discoverable, is_readable_by
 _NEWEST: Final[CursorOrdering[datetime]] = CursorOrdering.create(
     criterion=ScoreMetaModel.created_at,
     identity=ScoreMetaModel.id,
+    descending=True,
+    serialize=datetime.isoformat,
+    deserialize=datetime.fromisoformat,
+)
+
+_RECENTLY_ADDED: Final[CursorOrdering[datetime]] = CursorOrdering.create(
+    criterion=CollectionScoreModel.added_at,
+    identity=CollectionScoreModel.id,
     descending=True,
     serialize=datetime.isoformat,
     deserialize=datetime.fromisoformat,
@@ -184,6 +197,52 @@ class PostgresScoreCatalogQuery:
                 is_readable_by(viewer_id=viewer_id),
                 cursor_ordering.bounds(cursor=cursor),
             )
+        )
+        result: Result[tuple[ScoreMetaModel, str, datetime, str]] = await self._session.execute(
+            statement
+        )
+        rows: Sequence[Row[tuple[ScoreMetaModel, str, datetime, str]]] = result.all()
+        page_rows: Sequence[Row[tuple[ScoreMetaModel, str, datetime, str]]] = rows[:limit]
+
+        next_cursor: str | None = None
+        if len(rows) > limit:
+            next_cursor = cursor_ordering.cursor_for(
+                value=page_rows[-1][-2],
+                identity=page_rows[-1][-1],
+            )
+
+        return Page(
+            items=[self._to_item(score=row[0], author_name=row[1]) for row in page_rows],
+            next_cursor=next_cursor,
+        )
+
+    async def search_collection(
+        self,
+        *,
+        collection_id: str,
+        query: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> Page[ScoreMetaItem]:
+        cursor_ordering: CursorOrdering[datetime] = _RECENTLY_ADDED
+
+        statement: Select[tuple[ScoreMetaModel, str, datetime, str]] = (
+            select(
+                ScoreMetaModel,
+                UserModel.username,
+                *cursor_ordering.columns(),
+            )
+            .select_from(CollectionScoreModel)
+            .join(ScoreContentModel, ScoreContentModel.id == CollectionScoreModel.score_content_id)
+            .join(ScoreMetaModel, ScoreMetaModel.id == ScoreContentModel.score_id)
+            .outerjoin(UserModel, ScoreMetaModel.author_id == UserModel.id)
+            .where(
+                CollectionScoreModel.collection_id == collection_id,
+                matches(query=query),
+                cursor_ordering.bounds(cursor=cursor),
+            )
+            .order_by(*cursor_ordering.clauses())
+            .limit(limit + 1)
         )
         result: Result[tuple[ScoreMetaModel, str, datetime, str]] = await self._session.execute(
             statement

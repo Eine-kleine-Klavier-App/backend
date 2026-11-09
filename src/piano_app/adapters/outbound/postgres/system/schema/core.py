@@ -10,6 +10,7 @@ from sqlalchemy import (
     UniqueConstraint,
     false,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -27,11 +28,11 @@ class UserModel(Base):
         primary_key=True,
         server_default=func.gen_random_uuid(),
     )
-    username: Mapped[str] = mapped_column(
-        String(64),
-        unique=True,
-    )
+    username: Mapped[str] = mapped_column(String(64))
     bio: Mapped[str | None] = mapped_column(String)
+
+    # unique ignoring case; the stored spelling is what the author chose
+    __table_args__ = (Index("uq_users_username_lower", text("lower(username)"), unique=True),)
 
 
 class ScoreMetaModel(Base):
