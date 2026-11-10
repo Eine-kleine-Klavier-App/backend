@@ -52,12 +52,26 @@ class RedisDraftCache:
         # (get() is read-only and does not refresh the TTL)
         self._DRAFT_TTL_SECONDS: Final[int] = ttl_seconds
 
+        self._delete_script: AsyncScript = client.register_script(_load("delete.lua"))
         self._get_script: AsyncScript = client.register_script(_GET_SCRIPT)
         self._commit_script: AsyncScript = client.register_script(_COMMIT_SCRIPT)
         self._undo_script: AsyncScript = client.register_script(_UNDO_SCRIPT)
         self._redo_script: AsyncScript = client.register_script(_REDO_SCRIPT)
         self._hydrate_script: AsyncScript = client.register_script(_HYDRATE_SCRIPT)
         self._load_snapshot_script: AsyncScript = client.register_script(_LOAD_SNAPSHOT_SCRIPT)
+
+    async def delete(self, *, draft_id: str) -> None:
+        response: list[bytes | str | int] = await self._delete_script(
+            keys=[
+                self._revisions_key(draft_id=draft_id),
+                self._state_key(draft_id=draft_id),
+                self._meta_key(draft_id=draft_id),
+                f"draft:{draft_id}:deleted",
+            ],
+            args=[draft_id, "1"],
+        )
+        if self._to_str(response[0]) != "ok":
+            raise RuntimeError(f"Unexpected Redis delete response: {response!r}.")
 
     async def get(self, *, draft_id: str) -> VersionedDraftDocument | None:
         response: list[bytes | str | int] = await self._get_script(
@@ -188,6 +202,7 @@ class RedisDraftCache:
                 self._revisions_key(draft_id=snapshot.draft_id),
                 self._state_key(draft_id=snapshot.draft_id),
                 self._meta_key(draft_id=snapshot.draft_id),
+                f"draft:{snapshot.draft_id}:deleted",
             ],
             args=[
                 snapshot.cursor,
@@ -205,7 +220,7 @@ class RedisDraftCache:
         response_body: list[bytes | str | int] = response[1:]
 
         match response_code:
-            case "ok" | "exists":
+            case "ok" | "exists" | "deleted":
                 return
             case _:
                 raise RuntimeError(

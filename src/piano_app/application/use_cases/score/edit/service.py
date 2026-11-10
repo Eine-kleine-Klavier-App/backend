@@ -15,9 +15,14 @@ from piano_app.application.use_cases.score.shared import ScoreView, require_acce
 from piano_app.domain.score.document import ScoreDocument
 from piano_app.domain.score.document.services.mutation import MutationCompiler, MutationEngine
 from piano_app.domain.score.document.services.mutation.compiler import EditIntent
+from piano_app.domain.score.document.services.mutation.engine.log import MutationLog
 from piano_app.domain.score.document.services.mutation.instructions import (
     MutationRejectedError,
     MutationRequest,
+)
+from piano_app.domain.score.document.services.presentation import (
+    PresentationCommand,
+    PresentationEditor,
 )
 
 
@@ -47,8 +52,11 @@ class ScoreEditService:
         draft_id: str,
         actor_id: str,
         intent: EditIntent,
+        presentation: Sequence[PresentationCommand] = (),
     ) -> ScoreView:
-        """Runs one edit intent against the draft as one gesture and commits it."""
+        """Runs one edit intent against the draft as one gesture and commits it. The presentation
+        commands, if any, are part of the gesture: they are applied in the same transaction, so a
+        refusal of either leaves the draft as it was and one undo takes both back."""
         versioned: VersionedDraftDocument = await self._load(draft_id=draft_id, actor_id=actor_id)
         document: ScoreDocument = versioned.document
         try:
@@ -56,12 +64,26 @@ class ScoreEditService:
                 document=document,
                 intent=intent,
             )
-            self._run(document=document, requests=requests)
+            self._run(document=document, requests=requests, presentation=presentation)
         except MutationRejectedError as error:
             raise ScoreEditRejectedError(reason=error.reason) from error
 
         await self._commit(versioned=versioned)
         return ScoreView(document=document)
+
+    async def apply_presentation(
+        self, *, draft_id: str, actor_id: str, commands: Sequence[PresentationCommand]
+    ) -> ScoreView:
+        versioned = await self._load(draft_id=draft_id, actor_id=actor_id)
+        log = MutationLog()
+        try:
+            PresentationEditor().apply(document=versioned.document, commands=commands, sink=log)
+        except ValueError as error:
+            log.rollback()
+            raise ScoreEditRejectedError(reason=str(error)) from error
+        if log.has_changes:
+            await self._commit(versioned=versioned)
+        return ScoreView(document=versioned.document)
 
     async def undo(
         self,
@@ -126,5 +148,22 @@ class ScoreEditService:
             ) from error
 
     # TODO consider moving commit here
-    def _run(self, *, document: ScoreDocument, requests: Sequence[MutationRequest]) -> None:
-        self._engine.process(document=document, requests=requests)
+    def _run(
+        self,
+        *,
+        document: ScoreDocument,
+        requests: Sequence[MutationRequest],
+        presentation: Sequence[PresentationCommand] = (),
+    ) -> None:
+        with self._engine.transaction(document=document) as transaction:
+            transaction.run(requests=requests)
+            if transaction.log.has_changes:
+                document.renew_music_revision(sink=transaction.log)
+            if presentation:
+                try:
+                    PresentationEditor().apply(
+                        document=document, commands=presentation, sink=transaction.log
+                    )
+                except ValueError as error:
+                    raise MutationRejectedError(reason=str(error)) from error
+            PresentationEditor().prune(document=document, sink=transaction.log)
