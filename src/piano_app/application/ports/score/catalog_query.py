@@ -63,3 +63,15 @@ class ScoreCatalogQuery(Protocol):
         limit: int,
         cursor: str | None,
     ) -> Page[ScoreMetaItem]: ...
+
+    async def search_collection(
+        self,
+        *,
+        collection_id: str,
+        query: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> Page[ScoreMetaItem]:
+        """The scores a collection holds, most recently added first. Whether the caller may
+        read the collection was already settled by the caller."""
+        ...

@@ -10,6 +10,10 @@ from piano_app.application.ports import (
     ScoreUoWFactory,
 )
 from piano_app.application.use_cases.score.shared import ScoreView, require_readable_score
+from piano_app.application.use_cases.score.shared.context_coverage import (
+    ContextCoverage,
+    context_coverage,
+)
 from piano_app.domain.score import Score
 
 
@@ -94,6 +98,15 @@ class ScoreCatalogService:
                 )
             except PaginationCursorDecodingError as error:
                 raise InvalidPaginationCursorError from error
+
+    async def get_context_coverage(
+        self, *, score_id: str, viewer_id: str | None, context_id: str
+    ) -> ContextCoverage:
+        async with self._score_uow_factory() as uow:
+            score = await require_readable_score(
+                score_repository=uow.score_repository, score_id=score_id, viewer_id=viewer_id
+            )
+            return context_coverage(document=score.document, context_id=context_id)
 
     # TODO check relation permission if score with no author
     async def get_score(self, *, score_id: str, viewer_id: str | None) -> ScoreItem:

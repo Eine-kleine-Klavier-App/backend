@@ -12,9 +12,14 @@ from piano_app.application.use_cases.score.shared import (
     require_accessible_draft,
     require_readable_score,
 )
+from piano_app.application.use_cases.score.shared.context_coverage import (
+    ContextCoverage as ContextCoverage,
+)
+from piano_app.application.use_cases.score.shared.context_coverage import (
+    context_coverage,
+)
 from piano_app.domain.score import Score
 from piano_app.domain.score.document import ScoreDocument
-from piano_app.domain.score.document.models.structural import Measure, Staff, Voice
 
 _UNTITLED_DRAFT: str = "Untitled"
 
@@ -30,6 +35,10 @@ class DraftService:
         self._storage: DraftStore = storage
         self._score_uow_factory: ScoreUoWFactory = score_uow_factory
 
+    async def delete_draft(self, *, draft_id: str, actor_id: str) -> None:
+        await require_accessible_draft(storage=self._storage, draft_id=draft_id, viewer_id=actor_id)
+        await self._storage.delete(draft_id=draft_id)
+
     async def get_document(self, *, draft_id: str, viewer_id: str) -> ScoreView:
         versioned: VersionedDraftDocument = await require_accessible_draft(
             storage=self._storage,
@@ -38,6 +47,16 @@ class DraftService:
         )
 
         return ScoreView(document=versioned.document)
+
+    async def get_context_coverage(
+        self, *, draft_id: str, viewer_id: str, context_id: str
+    ) -> ContextCoverage:
+        versioned: VersionedDraftDocument = await require_accessible_draft(
+            storage=self._storage,
+            draft_id=draft_id,
+            viewer_id=viewer_id,
+        )
+        return context_coverage(document=versioned.document, context_id=context_id)
 
     async def create_draft_from_scratch(self, *, actor_id: str) -> CreatedDraft:
         document: ScoreDocument = self._seed_fresh_draft()
@@ -74,19 +93,5 @@ class DraftService:
     async def list_author_drafts(self, *, author_id: str) -> Sequence[DraftMeta]:
         return await self._storage.list_by_author(author_id=author_id)
 
-    # TODO clean up by delegating creation of voices, staffs, measures
-    #  to the aggregate root (ScoreDocument)
     def _seed_fresh_draft(self) -> ScoreDocument:
-        def _voices() -> list[Voice]:
-            return [Voice() for _ in range(3)]
-
-        def _staffs() -> list[Staff]:
-            return [Staff() for _ in range(2)]
-
-        def _measures() -> list[Measure]:
-            return [Measure.create() for _ in range(20)]
-
-        document: ScoreDocument = ScoreDocument.create(
-            voices=_voices(), staffs=_staffs(), measures=_measures()
-        )
-        return document
+        return ScoreDocument.create_fresh(voice_count=4, staff_count=2, measure_count=20)

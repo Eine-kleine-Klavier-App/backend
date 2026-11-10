@@ -1,5 +1,6 @@
 from .author_repository import AuthorProfile, AuthorRepository
 from .catalog_query import ScoreCatalogQuery, ScoreMetaItem
+from .collection_repository import CollectionPin, CollectionRepository, CollectionSummary
 from .draft_history import DraftHistory
 from .draft_store import (
     DraftMeta,
@@ -18,6 +19,9 @@ from .uow import ScoreUoW, ScoreUoWFactory
 __all__ = (
     "AuthorProfile",
     "AuthorRepository",
+    "CollectionPin",
+    "CollectionRepository",
+    "CollectionSummary",
     "DraftHistory",
     "DraftMeta",
     "DraftStore",

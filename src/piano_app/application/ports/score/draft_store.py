@@ -90,6 +90,10 @@ class DraftStore(Protocol):
         """Creates initial draft with a fresh document."""
         ...
 
+    async def delete(self, *, draft_id: str) -> None:
+        """Removes a working copy and its history; a missing copy is a no-op."""
+        ...
+
     async def get(self, *, draft_id: str) -> VersionedDraftDocument | None:
         """Returns ``None`` if ``draft_id`` has no working copy."""
         ...
