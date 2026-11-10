@@ -4,6 +4,7 @@ from typing import Protocol, Self
 
 from .author_repository import AuthorRepository
 from .catalog_query import ScoreCatalogQuery
+from .collection_repository import CollectionRepository
 from .score_repository import ScoreRepository
 
 
@@ -16,6 +17,9 @@ class ScoreUoW(Protocol):
 
     @property
     def author_repository(self) -> AuthorRepository: ...
+
+    @property
+    def collection_repository(self) -> CollectionRepository: ...
 
     async def __aenter__(self) -> Self: ...
 

@@ -4,6 +4,9 @@ from piano_app.domain.score import Score
 from .score import (
     AuthorProfile,
     AuthorRepository,
+    CollectionPin,
+    CollectionRepository,
+    CollectionSummary,
     DraftHistory,
     DraftStore,
     ScoreCatalogQuery,
@@ -16,6 +19,9 @@ from .score import (
 __all__ = (
     "AuthorProfile",
     "AuthorRepository",
+    "CollectionPin",
+    "CollectionRepository",
+    "CollectionSummary",
     "DraftHistory",
     "DraftStore",
     "Page",

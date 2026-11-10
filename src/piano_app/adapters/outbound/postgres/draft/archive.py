@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 
-from sqlalchemy import Result, Row, ScalarResult, Select, func, select, update
+from sqlalchemy import Result, Row, ScalarResult, Select, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from piano_app.adapters.outbound.postgres.draft.schema import DraftContentModel, DraftMetaModel
@@ -54,6 +54,11 @@ class PostgresDraftArchive:
 
         return snapshot
 
+    async def delete(self, *, draft_id: str) -> None:
+        async with self._session_factory() as session:
+            await session.execute(delete(DraftMetaModel).where(DraftMetaModel.id == draft_id))
+            await session.commit()
+
     async def archive(self, *, snapshot: DraftSnapshot) -> None:
         async with self._session_factory() as session:
             revisions: list[SerializedScoreDocument] = [
@@ -90,15 +95,13 @@ class PostgresDraftArchive:
 
     async def get_snapshot(self, *, draft_id: str) -> DraftSnapshot | None:
         async with self._session_factory() as session:
-            statement: Select[tuple[DraftMetaModel, DraftContentModel]] = (
+            statement: Select[DraftMetaModel, DraftContentModel] = (
                 select(DraftMetaModel, DraftContentModel)
                 .join(DraftContentModel, DraftContentModel.id == DraftMetaModel.id)
                 .where(DraftMetaModel.id == draft_id)
             )
-            result: Result[tuple[DraftMetaModel, DraftContentModel]] = await session.execute(
-                statement
-            )
-            result_row: Row[tuple[DraftMetaModel, DraftContentModel]] | None = result.one_or_none()
+            result: Result[DraftMetaModel, DraftContentModel] = await session.execute(statement)
+            result_row: Row[DraftMetaModel, DraftContentModel] | None = result.one_or_none()
 
             if result_row is None:
                 return None
@@ -110,7 +113,7 @@ class PostgresDraftArchive:
 
     async def list_by_author(self, *, author_id: str) -> Sequence[DraftMeta]:
         async with self._session_factory() as session:
-            statement: Select[tuple[DraftMetaModel]] = select(DraftMetaModel).where(
+            statement: Select[DraftMetaModel] = select(DraftMetaModel).where(
                 DraftMetaModel.author_id == author_id
             )
             result: ScalarResult[DraftMetaModel] = await session.scalars(statement)
