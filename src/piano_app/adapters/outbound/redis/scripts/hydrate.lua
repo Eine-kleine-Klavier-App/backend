@@ -2,6 +2,11 @@ local revisions_key = KEYS[1]
 local state_key = KEYS[2]
 local meta_key = KEYS[3]
 
+-- Deleted draft ids are never reused. A late cold read cannot resurrect their snapshots.
+if redis.call('EXISTS', KEYS[4]) == 1 then
+    return {'deleted'}
+end
+
 local cursor = ARGV[1]
 local version = ARGV[2]
 local author_id = ARGV[3]

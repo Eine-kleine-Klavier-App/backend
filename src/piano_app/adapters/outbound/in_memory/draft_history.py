@@ -129,6 +129,9 @@ class InMemoryDraftHistory:
         self._draft_histories[draft_id] = history
         return history.load()
 
+    async def delete(self, *, draft_id: str) -> None:
+        self._draft_histories.pop(draft_id, None)
+
     async def get(self, *, draft_id: str) -> VersionedDraftDocument | None:
         history: _SingleDraftHistory | None = self._draft_histories.get(draft_id)
         return None if history is None else history.load()

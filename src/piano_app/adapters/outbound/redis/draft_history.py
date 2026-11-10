@@ -61,12 +61,29 @@ class RedisDraftHistory:
         # (get() is read-only and does not refresh the TTL)
         self._DRAFT_TTL_SECONDS: Final[int] = ttl_seconds
 
+        self._delete_script: AsyncScript = client.register_script(_load("delete.lua"))
         self._get_script: AsyncScript = client.register_script(_GET_SCRIPT)
         self._create_script: AsyncScript = client.register_script(_CREATE_SCRIPT)
         self._list_by_author_script: AsyncScript = client.register_script(_LIST_BY_AUTHOR_SCRIPT)
         self._commit_script: AsyncScript = client.register_script(_COMMIT_SCRIPT)
         self._undo_script: AsyncScript = client.register_script(_UNDO_SCRIPT)
         self._redo_script: AsyncScript = client.register_script(_REDO_SCRIPT)
+
+    async def delete(self, *, draft_id: str) -> None:
+        author = await self._client.hget(self._meta_key(draft_id=draft_id), "author")
+        keys = [
+            self._revisions_key(draft_id=draft_id),
+            self._state_key(draft_id=draft_id),
+            self._meta_key(draft_id=draft_id),
+            f"draft:{draft_id}:deleted",
+        ]
+        if author is not None:
+            keys.append(self._author_drafts_key(author_id=self._to_str(author)))
+        response: list[bytes | str | int] = await self._delete_script(
+            keys=keys, args=[draft_id, "0"]
+        )
+        if self._to_str(response[0]) != "ok":
+            raise RuntimeError(f"Unexpected Redis delete response: {response!r}.")
 
     async def get(self, *, draft_id: str) -> VersionedDraftDocument | None:
         response: list[bytes | str | int] = await self._get_script(

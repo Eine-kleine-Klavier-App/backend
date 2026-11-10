@@ -18,7 +18,16 @@ from piano_app.adapters.inbound.http import (
     build_session_router,
     register_exception_handlers,
 )
-from piano_app.adapters.outbound.auth import JWTAccessTokenService
+from piano_app.adapters.inbound.http.score.collection.router import build_collection_router
+from piano_app.adapters.inbound.http.score.manage.router import build_manage_router
+from piano_app.adapters.inbound.http.score.playback import build_playback_router
+from piano_app.adapters.inbound.http.score.playback.preview_socket import (
+    build_preview_socket_router,
+)
+from piano_app.adapters.inbound.http.score.playback.responses import AUDIO_HEADERS
+from piano_app.adapters.inbound.http.score.playback.saved_router import build_saved_playback_router
+from piano_app.adapters.outbound.auth import JWTAccessTokenService, ScryptPasswordHasher
+from piano_app.adapters.outbound.fluidsynth import FluidSynthRenderer
 from piano_app.adapters.outbound.google import GoogleIdentityVerifier
 from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
 from piano_app.adapters.outbound.postgres.draft import PostgresDraftArchive
@@ -38,7 +47,11 @@ from piano_app.application.use_cases.score import (
     ScoreCatalogService,
     ScoreEditService,
 )
+from piano_app.application.use_cases.score.collection.service import CollectionService
 from piano_app.application.use_cases.score.draft.service import DraftService
+from piano_app.application.use_cases.score.manage.service import ScoreManageService
+from piano_app.application.use_cases.score.playback import PlaybackService, PreviewSessionService
+from piano_app.application.use_cases.score.playback.saved_score import SavedScorePlaybackService
 from piano_app.domain.score.document.services.mutation import (
     MutationCompiler,
     MutationEngine,
@@ -135,6 +148,7 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
         identity_verifier=GoogleIdentityVerifier(
             allowed_audiences=frozenset(resolved_settings.GOOGLE_CLIENT_IDS)
         ),
+        password_hasher=ScryptPasswordHasher(),
         auth_uow_factory=PostgresAuthUoWFactory(
             session_factory=session_factory,
             refresh_token_ttl=timedelta(seconds=resolved_settings.AUTH_REFRESH_TTL_SECONDS),
@@ -161,6 +175,24 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
         storage=history, score_uow_factory=score_uow_factory
     )
     catalog_service: ScoreCatalogService = ScoreCatalogService(score_uow_factory=score_uow_factory)
+    manage_service: ScoreManageService = ScoreManageService(score_uow_factory=score_uow_factory)
+    collection_service: CollectionService = CollectionService(score_uow_factory=score_uow_factory)
+    playback_renderer: FluidSynthRenderer | None = (
+        None
+        if resolved_settings.PLAYBACK_SOUNDFONT is None
+        else FluidSynthRenderer(
+            soundfont=resolved_settings.PLAYBACK_SOUNDFONT,
+            library_path=resolved_settings.PLAYBACK_FLUIDSYNTH_LIBRARY,
+            gain=resolved_settings.PLAYBACK_GAIN,
+        )
+    )
+    playback_service: PlaybackService = PlaybackService(storage=history, renderer=playback_renderer)
+    saved_playback_service = SavedScorePlaybackService(
+        score_uow_factory=score_uow_factory, renderer=playback_renderer
+    )
+    preview_service: PreviewSessionService = PreviewSessionService(
+        storage=history, renderer=playback_renderer
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -170,6 +202,7 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await preview_service.close()
             await stack.aclose()
 
     app: FastAPI = FastAPI(title="Piano App", lifespan=lifespan)
@@ -179,6 +212,7 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=list(AUDIO_HEADERS),
     )
     register_exception_handlers(app=app)
     app.include_router(
@@ -201,4 +235,21 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
     app.include_router(build_draft_router(service=draft_service, current_user=current_user))
     app.include_router(build_edit_router(service=edit_service, current_user=current_user))
     app.include_router(build_save_router(service=save_service, current_user=current_user))
+    app.include_router(build_manage_router(service=manage_service, current_user=current_user))
+    app.include_router(
+        build_collection_router(service=collection_service, current_user=current_user)
+    )
+    app.include_router(build_playback_router(service=playback_service, current_user=current_user))
+    app.include_router(
+        build_saved_playback_router(
+            service=saved_playback_service, current_user_optional=current_user_optional
+        )
+    )
+    app.include_router(
+        build_preview_socket_router(
+            service=preview_service,
+            auth=auth_service,
+            allowed_origins=resolved_settings.CORS_ORIGINS,
+        )
+    )
     return app

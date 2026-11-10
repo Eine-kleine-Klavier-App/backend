@@ -30,6 +30,8 @@ class DraftArchive(Protocol):
         document: ScoreDocument,
     ) -> DraftSnapshot: ...
 
+    async def delete(self, *, draft_id: str) -> None: ...
+
     async def archive(self, *, snapshot: DraftSnapshot) -> None: ...
 
     async def get_snapshot(self, *, draft_id: str) -> DraftSnapshot | None: ...
@@ -52,6 +54,8 @@ class DraftCache(Protocol):
     async def redo(self, *, draft: VersionedDraftDocument) -> bool: ...
 
     async def commit(self, *, draft: VersionedDraftDocument) -> None: ...
+
+    async def delete(self, *, draft_id: str) -> None: ...
 
     async def hydrate(self, *, snapshot: DraftSnapshot) -> None: ...
 
@@ -88,6 +92,10 @@ class TieredDraftHistory:
             document=snapshot.revisions[snapshot.cursor],
             version=snapshot.version,
         )
+
+    async def delete(self, *, draft_id: str) -> None:
+        await self._cold.delete(draft_id=draft_id)
+        await self._hot.delete(draft_id=draft_id)
 
     # cold only, no need for a fast cache for this operation
     async def list_by_author(self, *, author_id: str) -> Sequence[DraftMeta]:

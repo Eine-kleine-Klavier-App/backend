@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 
-from sqlalchemy import Result, Row, ScalarResult, Select, func, select, update
+from sqlalchemy import Result, Row, ScalarResult, Select, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from piano_app.adapters.outbound.postgres.draft.schema import DraftContentModel, DraftMetaModel
@@ -53,6 +53,11 @@ class PostgresDraftArchive:
             await session.commit()
 
         return snapshot
+
+    async def delete(self, *, draft_id: str) -> None:
+        async with self._session_factory() as session:
+            await session.execute(delete(DraftMetaModel).where(DraftMetaModel.id == draft_id))
+            await session.commit()
 
     async def archive(self, *, snapshot: DraftSnapshot) -> None:
         async with self._session_factory() as session:

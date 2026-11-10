@@ -1,31 +1,64 @@
 from fractions import Fraction
 
 from piano_app.domain.score.document import ScoreDocument
+from piano_app.domain.score.document.models.context import (
+    ClefChange,
+    Context,
+    DynamicChange,
+    Hairpin,
+    KeySignatureChange,
+    OctaveTransposition,
+    Refrain,
+    Slur,
+    SpanContext,
+    StaffScoped,
+    SustainHold,
+    TempoChange,
+    TempoTransition,
+    VoicesScoped,
+    Volta,
+)
 from piano_app.domain.score.document.models.material import (
     Carrier,
     NoteCarrier,
     RestCarrier,
 )
 from piano_app.domain.score.document.models.material.primitive import MusicalItem, Note, Rest
-from piano_app.domain.score.document.models.notation import (
-    DottedRhythmicValue,
-    RhythmicSize,
-    StemOverride,
-)
-from piano_app.domain.score.document.models.relations import Beam, Relation, Tie
+from piano_app.domain.score.document.models.notation import DottedRhythmicValue, RhythmicSize
+from piano_app.domain.score.document.models.relations import Beam, Glissando, Relation, Tie
 from piano_app.domain.score.document.models.structural import Measure, Staff, Voice
 from piano_app.domain.score.document.models.structural.rhythm import (
+    GraceGroup,
+    GraceItem,
     GroupRhythmicContainer,
     LeafRhythmicContainer,
     RhythmicContainer,
+)
+from piano_app.domain.score.document.services.contexts import ContextIndex, ContextValues, Tempo
+from piano_app.domain.score.document.services.geometry import conversion
+from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.helpers import taken_from
+from piano_app.domain.score.document.services.pitch.score_pitch import ScorePitch
+from piano_app.domain.score.document.services.presentation.capabilities import (
+    presentation_capabilities,
 )
 
 
 class ScoreView:
     def __init__(self, *, document: ScoreDocument) -> None:
+        self._document: ScoreDocument = document
         self._staffs: list[Staff] = list(document.staffs)
         self._measures: list[Measure] = list(document.measures)
         self._voices: list[Voice] = list(document.voices)
+
+        # the view is read once, so its geometry and pitch index are built for it alone
+        self._geometry: ScoreGeometry = ScoreGeometry(document=document)
+        context_index: ContextIndex = ContextIndex(document=document, geometry=self._geometry)
+        self._values: ContextValues = ContextValues(contexts=context_index, geometry=self._geometry)
+        self._pitch: ScorePitch = ScorePitch(
+            document=document, geometry=self._geometry, contexts=context_index
+        )
+        self._contexts: list[Context] = list(context_index.contexts())
 
         self._rhythmic_containers: list[RhythmicContainer] = []
         self._carriers: list[Carrier] = []
@@ -38,6 +71,21 @@ class ScoreView:
 
     def jsonify(self) -> dict[str, object]:
         return {
+            "music_revision": self._document.music_revision,
+            "presentation": self._presentation_json(),
+            "presentation_capabilities": [
+                {
+                    "entity_id": target.entity_id,
+                    "reference": target.reference.value,
+                    "vertical": capability.vertical,
+                    "endpoints": capability.endpoints,
+                    "directed": capability.directed,
+                    "horizontal": capability.horizontal,
+                    "horizontal_endpoints": capability.horizontal_endpoints,
+                }
+                for target, capability in presentation_capabilities(document=self._document).items()
+            ],
+            "insertion_spaces": self._insertion_spaces_json(),
             "staffs": [self._staff_json(staff=staff) for staff in self._staffs],
             "measures": [self._measure_json(measure=measure) for measure in self._measures],
             "voices": [self._voice_json(voice=voice) for voice in self._voices],
@@ -50,7 +98,80 @@ class ScoreView:
             "relations": [
                 self._relation_json(relation=relation) for relation in self._relations.values()
             ],
+            "contexts": [self._context_json(context=context) for context in self._contexts],
         }
+
+    def _presentation_json(self) -> dict[str, object]:
+        presentation = self._document.presentation
+        return {
+            "vertical": [
+                {
+                    "entity_id": target.entity_id,
+                    "reference": target.reference.value,
+                    "offset": value.value,
+                }
+                for target, value in presentation.vertical.items()
+            ],
+            "endpoints": [
+                {
+                    "entity_id": target.entity_id,
+                    "reference": target.reference.value,
+                    "left": value.left,
+                    "right": value.right,
+                }
+                for target, value in presentation.endpoints.items()
+            ],
+            "directions": [
+                {
+                    "entity_id": target.entity_id,
+                    "reference": target.reference.value,
+                    "direction": value.value,
+                }
+                for target, value in presentation.directions.items()
+            ],
+            "horizontal": [
+                {
+                    "entity_id": target.entity_id,
+                    "reference": target.reference.value,
+                    "offset": value.value,
+                }
+                for target, value in presentation.horizontal.items()
+            ],
+            "horizontal_endpoints": [
+                {
+                    "entity_id": target.entity_id,
+                    "reference": target.reference.value,
+                    "left": value.left,
+                    "right": value.right,
+                }
+                for target, value in presentation.horizontal_endpoints.items()
+            ],
+        }
+
+    def _insertion_spaces_json(self) -> list[dict[str, object]]:
+        result: list[dict[str, object]] = []
+        for voice in self._voices:
+            pending = list(voice.children)
+            while pending:
+                container = pending.pop(0)
+                if not isinstance(container, GroupRhythmicContainer):
+                    continue
+                frame = self._geometry.of_group(group=container)
+                transform = conversion(source=frame, target=self._geometry.root)
+                result.append(
+                    {
+                        "id": container.id,
+                        "voice_id": voice.id,
+                        "parent_id": container.parent.id
+                        if isinstance(container.parent, GroupRhythmicContainer)
+                        else None,
+                        "start": self._fraction_json(value=transform.offset),
+                        "scale": self._fraction_json(value=transform.scale),
+                        "extent": self._fraction_json(value=frame.extent),
+                    }
+                )
+                pending[0:0] = container.children
+        return result
 
     def _collect(self, *, container: RhythmicContainer) -> None:
         self._rhythmic_containers.append(container)
@@ -66,6 +187,18 @@ class ScoreView:
 
             for relation in self._relations_of(carrier=carrier):
                 self._relations.setdefault(relation.id, relation)
+
+            for group in (container.grace_before, container.grace_after):
+                if group is None:
+                    continue
+
+                for grace in group.grace_items:
+                    grace_carrier: Carrier = self._grace_carrier_of(grace=grace)
+                    self._carriers.append(grace_carrier)
+                    self._items.extend(self._items_of(carrier=grace_carrier))
+
+                    for relation in self._relations_of(carrier=grace_carrier):
+                        self._relations.setdefault(relation.id, relation)
 
         else:
             raise TypeError(f"Unsupported rhythmic container type: {type(container).__name__}.")
@@ -109,9 +242,30 @@ class ScoreView:
                 "measure_id": container.anchor.measure.id,
                 "position": self._fraction_json(value=container.anchor.position.value),
                 "carrier_id": carrier.id,
+                "grace_before": self._grace_json(group=container.grace_before),
+                "grace_after": self._grace_json(group=container.grace_after),
+                # the time its grace notes take from the note: it sounds written minus this
+                "grace_taken": self._fraction_json(value=taken_from(leaf=container)),
             }
 
         raise TypeError(f"Unsupported rhythmic container type: {type(container).__name__}.")
+
+    def _grace_json(self, *, group: GraceGroup | None) -> dict[str, object] | None:
+        if group is None:
+            return None
+
+        return {
+            "id": group.id,
+            "grace_type": group.grace_type.value,
+            "items": [
+                {
+                    "id": grace.id,
+                    "rhythmic_value": self._dotted_value_json(value=grace.rhythmic_value),
+                    "carrier_id": self._grace_carrier_of(grace=grace).id,
+                }
+                for grace in group.grace_items
+            ],
+        }
 
     def _carrier_json(self, *, carrier: Carrier) -> dict[str, object]:
         common: dict[str, object] = {
@@ -119,14 +273,13 @@ class ScoreView:
         }
 
         if isinstance(carrier, NoteCarrier):
-            stem: StemOverride | None = carrier.stem
             return common | {
                 "kind": "chord",
-                "articulation": carrier.articulation.value,
+                "articulations": [
+                    articulation.value for articulation in sorted(carrier.articulations)
+                ],
+                "ornament": carrier.ornament.value,
                 "note_ids": [note.id for note in carrier.notes],
-                "stem": None
-                if stem is None
-                else {"direction": stem.direction.value, "length_percent": stem.length_percent},
             }
 
         if isinstance(carrier, RestCarrier):
@@ -150,6 +303,7 @@ class ScoreView:
                 "staff_step": item.staff_step,
                 "accidental": item.accidental.value,
                 "fingering": int(item.fingering),
+                "midi_note": self._midi_note_of(note=item),
             }
 
         if isinstance(item, Rest):
@@ -177,6 +331,14 @@ class ScoreView:
                 "carrier_ids": [carrier.id for carrier in relation.members],
             }
 
+        if isinstance(relation, Glissando):
+            return common | {
+                "kind": "glissando",
+                "start_note_id": relation.start.id,
+                "end_note_id": relation.end.id,
+                "glissando_type": relation.glissando_type.value,
+            }
+
         raise TypeError(f"Unsupported relation type: {type(relation).__name__}.")
 
     def _items_of(self, *, carrier: Carrier) -> list[MusicalItem]:
@@ -195,7 +357,6 @@ class ScoreView:
             return relations
 
         if isinstance(carrier, NoteCarrier):
-            relations.extend(carrier.note_carrier_group_relations)
             for note in carrier.notes:
                 relations.extend(note.relations)
 
@@ -207,6 +368,13 @@ class ScoreView:
         carrier: Carrier | None = leaf.carrier
         if carrier is None:
             raise RuntimeError(f"Cannot build score view: leaf {leaf.id!r} has no carrier.")
+
+        return carrier
+
+    def _grace_carrier_of(self, *, grace: GraceItem) -> Carrier:
+        carrier: Carrier | None = grace.carrier
+        if carrier is None:
+            raise RuntimeError(f"Cannot build score view: grace item {grace.id!r} has no carrier.")
 
         return carrier
 
@@ -230,3 +398,125 @@ class ScoreView:
             "numerator": value.numerator,
             "denominator": value.denominator,
         }
+
+    def _midi_note_of(self, *, note: Note) -> int:
+        """The sounding pitch of a note, a grace note included."""
+        return self._pitch.pitch_of(note=note).midi_note
+
+    def _context_json(self, *, context: Context) -> dict[str, object]:
+        common: dict[str, object] = {
+            "id": context.id,
+            "measure_id": context.start.measure.id,
+            "position": self._fraction_json(value=context.start.position.value),
+        }
+        if isinstance(context, SpanContext):
+            # an empty end lasts until the end of the score
+            common |= {
+                "end_measure_id": None if context.end is None else context.end.measure.id,
+                "end_position": None
+                if context.end is None
+                else self._fraction_json(value=context.end.position.value),
+            }
+        if isinstance(context, StaffScoped):
+            common |= {"staff_id": context.staff.id}
+        if isinstance(context, VoicesScoped):
+            common |= {"voice_ids": [voice.id for voice in context.voices]}
+
+        if isinstance(context, ClefChange):
+            return common | {
+                "kind": "clef_change",
+                "clef": context.clef.value,
+                "octave_transposition": context.octave_transposition,
+            }
+
+        if isinstance(context, KeySignatureChange):
+            return common | {
+                "kind": "key_signature_change",
+                "alterations": [alteration.value for alteration in context.alterations],
+            }
+
+        if isinstance(context, TempoChange):
+            return common | {
+                "kind": "tempo_change",
+                "beat": self._dotted_value_json(value=context.beat),
+                "bpm": context.bpm,
+                "show_label": context.show_label,
+                "label": None if context.label is None else context.label.value,
+            }
+
+        if isinstance(context, DynamicChange):
+            return common | {"kind": "dynamic_change", "dynamic": context.dynamic.value}
+
+        if isinstance(context, Hairpin):
+            return common | {
+                "kind": "hairpin",
+                "hairpin_type": context.hairpin_type.value,
+                "steps": context.steps,
+                "levels": [
+                    {
+                        "voice_id": voice.id,
+                        "from": self._values.hairpin_start_dynamic(
+                            hairpin=context, voice=voice
+                        ).value,
+                        "to": self._values.hairpin_end_dynamic(hairpin=context, voice=voice).value,
+                    }
+                    for voice in context.voices
+                ],
+            }
+
+        if isinstance(context, TempoTransition):
+            return common | {
+                "kind": "tempo_transition",
+                "ratio": self._fraction_json(value=context.ratio),
+                "start_tempo": self._tempo_json(
+                    tempo=self._values.transition_start_tempo(transition=context)
+                ),
+                "end_tempo": self._tempo_json(
+                    tempo=self._values.transition_end_tempo(transition=context)
+                ),
+            }
+
+        if isinstance(context, OctaveTransposition):
+            return common | {"kind": "octave_transposition", "octaves": context.octaves}
+
+        if isinstance(context, Slur):
+            return common | {"kind": "slur"}
+
+        if isinstance(context, SustainHold):
+            return common | {"kind": "sustain_hold"}
+
+        if isinstance(context, Refrain):
+            return common | {
+                "kind": "refrain",
+                "end_measure_id": None if context.end is None else context.end.measure.id,
+                "end_position": None
+                if context.end is None
+                else self._fraction_json(value=context.end.position.value),
+                "times": context.times,
+            }
+
+        if isinstance(context, Volta):
+            return common | {
+                "kind": "volta",
+                "body_end_measure_id": context.body_end.measure.id,
+                "body_end_position": self._fraction_json(value=context.body_end.position.value),
+                "pass_count": context.pass_count,
+                "fragments": [
+                    {
+                        "end_measure_id": None if fragment.end is None else fragment.end.measure.id,
+                        "end_position": None
+                        if fragment.end is None
+                        else self._fraction_json(value=fragment.end.position.value),
+                        "passes": sorted(fragment.passes),
+                    }
+                    for fragment in context.fragments
+                ],
+            }
+
+        raise TypeError(f"Unsupported context type: {type(context).__name__}.")
+
+    def _dotted_value_json(self, *, value: DottedRhythmicValue) -> dict[str, object]:
+        return {"value": int(value.value), "dots": value.dots_count}
+
+    def _tempo_json(self, *, tempo: Tempo) -> dict[str, object]:
+        return {"beat": self._dotted_value_json(value=tempo.beat), "bpm": float(tempo.bpm)}

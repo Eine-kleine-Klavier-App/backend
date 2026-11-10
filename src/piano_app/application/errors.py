@@ -42,6 +42,14 @@ class ScoreVersionConflictError(Exception):
         self.version: int = version
 
 
+class CollectionNotFoundError(Exception):
+    """Raised when a collection is missing or belongs to someone else — always the same error."""
+
+    def __init__(self, *, collection_id: str) -> None:
+        super().__init__("Collection not found.")
+        self.collection_id: str = collection_id
+
+
 class ScoreNotOwnedError(Exception):
     """Raised when a caller who isn't a score's author tries to change it."""
 
@@ -79,6 +87,13 @@ class InvalidExternalCredentialError(Exception):
         super().__init__("External identity credential is invalid.")
 
 
+class InvalidPasswordCredentialsError(Exception):
+    """Raised when a username/password pair does not match an account."""
+
+    def __init__(self) -> None:
+        super().__init__("Username or password is incorrect.")
+
+
 class InvalidRefreshTokenError(Exception):
     """Raised when a refresh credential is missing, expired, or already rotated."""
 
@@ -98,3 +113,22 @@ class InvalidPaginationCursorError(Exception):
 
     def __init__(self) -> None:
         super().__init__("Pagination cursor is invalid.")
+
+
+class ContextNotFoundError(Exception):
+    """Raised when a draft has no context with the requested id."""
+
+    def __init__(self) -> None:
+        super().__init__("The draft has no context with this id.")
+
+
+class PlaybackRejectedError(Exception):
+    """The requested playback cannot be built from the document."""
+
+
+class PlaybackCarrierNotFoundError(Exception):
+    """The requested note carrier is not in this draft."""
+
+
+class PlaybackUnavailableError(Exception):
+    """Server synthesis is unconfigured or cannot start."""

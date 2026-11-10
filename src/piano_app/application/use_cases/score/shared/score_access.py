@@ -42,7 +42,7 @@ async def require_score_write_access(
     score_repository: ScoreRepository,
     score_id: str,
     actor_id: str,
-) -> None:
+) -> ScoreMeta:
     meta: ScoreMeta | None = await score_repository.get_meta(score_id=score_id)
     if meta is None:
         raise ScoreNotFoundError(score_id=score_id)
@@ -52,3 +52,5 @@ async def require_score_write_access(
             raise ScoreNotOwnedError(score_id=score_id)
 
         raise ScoreNotFoundError(score_id=score_id)
+
+    return meta
