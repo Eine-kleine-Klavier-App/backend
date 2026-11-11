@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from piano_app.application.ports.score import DraftMeta
-from piano_app.application.use_cases.score.draft.service import CreatedDraft
+from piano_app.application.use_cases.score.draft.service import ContextCoverage, CreatedDraft
 from piano_app.application.use_cases.score.shared import ScoreView
 
 
@@ -22,6 +22,15 @@ class GetDraftResponse(BaseModel):
     @classmethod
     def from_view(cls, view: ScoreView) -> GetDraftResponse:
         return cls(document=view.jsonify())
+
+
+class ContextCoverageResponse(BaseModel):
+    carrier_ids: list[str] = Field(description="The carriers the context is applied to")
+    note_ids: list[str] = Field(description="The notes the context is applied to")
+
+    @classmethod
+    def from_coverage(cls, coverage: ContextCoverage) -> ContextCoverageResponse:
+        return cls(carrier_ids=list(coverage.carrier_ids), note_ids=list(coverage.note_ids))
 
 
 class DraftCardResponse(BaseModel):

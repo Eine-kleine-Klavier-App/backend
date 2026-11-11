@@ -8,6 +8,7 @@ from piano_app.application.ports import Page, ScoreMetaItem
 from piano_app.application.use_cases.score import ScoreCatalogService
 from piano_app.application.use_cases.score.catalog.service import ScoreItem
 
+from ..draft.responses import ContextCoverageResponse
 from .responses import ScoreCardResponse, ScoreResponse
 
 
@@ -60,6 +61,17 @@ def build_scores_router(
             score_id=score_id, viewer_id=viewer_id, limit=limit, cursor=cursor
         )
         return PageResponse.of(page, item=ScoreCardResponse.from_item)
+
+    @router.get(path="/{score_id}/contexts/{context_id}/coverage", status_code=200)
+    async def get_context_coverage(
+        score_id: Annotated[str, Path(description="The score ID")],
+        context_id: Annotated[str, Path(description="The context ID")],
+        viewer_id: Annotated[str | None, Depends(current_user_optional)],
+    ) -> ContextCoverageResponse:
+        coverage = await service.get_context_coverage(
+            score_id=score_id, viewer_id=viewer_id, context_id=context_id
+        )
+        return ContextCoverageResponse.from_coverage(coverage)
 
     @router.get(path="/{score_id}", status_code=200)
     async def get_score(

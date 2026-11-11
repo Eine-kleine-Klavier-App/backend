@@ -4,13 +4,19 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
 from piano_app.application.errors import (
+    CollectionNotFoundError,
+    ContextNotFoundError,
     DraftNotFoundError,
     DraftVersionConflictError,
     IdentityAlreadyLinkedError,
     InvalidAccessTokenError,
     InvalidExternalCredentialError,
     InvalidPaginationCursorError,
+    InvalidPasswordCredentialsError,
     InvalidRefreshTokenError,
+    PlaybackCarrierNotFoundError,
+    PlaybackRejectedError,
+    PlaybackUnavailableError,
     ScoreEditRejectedError,
     ScoreNotFoundError,
     ScoreNotOwnedError,
@@ -28,6 +34,10 @@ class ErrorMapping:
 
 
 _ERROR_MAPPINGS: tuple[ErrorMapping, ...] = (
+    ErrorMapping(error_type=ContextNotFoundError, status_code=status.HTTP_404_NOT_FOUND),
+    ErrorMapping(error_type=PlaybackRejectedError, status_code=422),
+    ErrorMapping(error_type=PlaybackCarrierNotFoundError, status_code=404),
+    ErrorMapping(error_type=PlaybackUnavailableError, status_code=503),
     ErrorMapping(
         error_type=InvalidPaginationCursorError,
         status_code=status.HTTP_400_BAD_REQUEST,
@@ -45,6 +55,10 @@ _ERROR_MAPPINGS: tuple[ErrorMapping, ...] = (
         status_code=status.HTTP_401_UNAUTHORIZED,
     ),
     ErrorMapping(
+        error_type=InvalidPasswordCredentialsError,
+        status_code=status.HTTP_401_UNAUTHORIZED,
+    ),
+    ErrorMapping(
         error_type=InvalidRefreshTokenError,
         status_code=status.HTTP_401_UNAUTHORIZED,
     ),
@@ -52,6 +66,10 @@ _ERROR_MAPPINGS: tuple[ErrorMapping, ...] = (
     ErrorMapping(
         error_type=ScoreNotOwnedError,
         status_code=status.HTTP_403_FORBIDDEN,
+    ),
+    ErrorMapping(
+        error_type=CollectionNotFoundError,
+        status_code=status.HTTP_404_NOT_FOUND,
     ),
     ErrorMapping(
         error_type=DraftNotFoundError,
