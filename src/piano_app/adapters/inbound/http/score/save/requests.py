@@ -4,7 +4,7 @@ from piano_app.application.contracts.score import CreateScoreCommand
 
 
 class CreateScoreRequest(BaseModel):
-    is_public: bool = Field(default=False, description="Whether the score should be public")
+    is_public: bool = Field(description="Whether the score should be public")
     title: str = Field(description="The score's title")
     composer: str | None = Field(default=None, description="The score's composer")
 
