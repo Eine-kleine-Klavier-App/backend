@@ -6,10 +6,15 @@ from fastapi import APIRouter, Depends, Path, Response
 from piano_app.adapters.inbound.http.current_user import CurrentUser
 from piano_app.application.ports.score import DraftMeta
 from piano_app.application.use_cases.score import DraftService
-from piano_app.application.use_cases.score.draft.service import CreatedDraft
+from piano_app.application.use_cases.score.draft.service import ContextCoverage, CreatedDraft
 from piano_app.application.use_cases.score.shared import ScoreView
 
-from .responses import DraftCardResponse, DraftCreatedResponse, GetDraftResponse
+from .responses import (
+    ContextCoverageResponse,
+    DraftCardResponse,
+    DraftCreatedResponse,
+    GetDraftResponse,
+)
 
 
 def build_draft_router(*, service: DraftService, current_user: CurrentUser) -> APIRouter:
@@ -23,6 +28,17 @@ def build_draft_router(*, service: DraftService, current_user: CurrentUser) -> A
     ) -> GetDraftResponse:
         view: ScoreView = await service.get_document(draft_id=draft_id, viewer_id=viewer_id)
         return GetDraftResponse.from_view(view)
+
+    @router.get(path="/{draft_id}/contexts/{context_id}/coverage", status_code=200)
+    async def get_context_coverage(
+        draft_id: Annotated[str, Path(description="The draft ID")],
+        context_id: Annotated[str, Path(description="The context ID")],
+        viewer_id: Annotated[str, Depends(current_user)],
+    ) -> ContextCoverageResponse:
+        coverage: ContextCoverage = await service.get_context_coverage(
+            draft_id=draft_id, viewer_id=viewer_id, context_id=context_id
+        )
+        return ContextCoverageResponse.from_coverage(coverage)
 
     # Not paginated: list_author_drafts has no cursor mechanism yet (Redis SET
     # backing the hot-tier author index has no native ordering), and per-author
@@ -58,5 +74,13 @@ def build_draft_router(*, service: DraftService, current_user: CurrentUser) -> A
         )
         response.headers["Location"] = f"/drafts/{created.draft_id}"
         return DraftCreatedResponse.from_created(created)
+
+    @router.delete(path="/{draft_id}", status_code=204)
+    async def delete_draft(
+        draft_id: Annotated[str, Path(description="The draft ID")],
+        actor_id: Annotated[str, Depends(current_user)],
+    ) -> Response:
+        await service.delete_draft(draft_id=draft_id, actor_id=actor_id)
+        return Response(status_code=204)
 
     return router
