@@ -59,7 +59,7 @@ def test_nesting_squeezes_written_into_occupied() -> None:
 
 @pytest.mark.unit
 def test_a_shift_never_compresses() -> None:
-    """The measure case: a bar moves durations along the timeline, it does not
+    """The measure case: a measure moves durations along the timeline, it does not
     rescale them."""
     shift: Transform = Transform.of_shift(offset=Fraction(3))
 
