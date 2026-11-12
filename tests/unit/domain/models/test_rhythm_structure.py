@@ -30,7 +30,7 @@ from ..scene import Score, anchor_at, build_score, eighth_triplet, group, note, 
         (Fraction(0), True),
         (Fraction(3, 4), True),
         (Fraction(63, 64), True),
-        (Fraction(1), False),  # the end of a bar is the start of the next one
+        (Fraction(1), False),  # the end of a measure is the start of the next one
         (Fraction(5, 4), False),
     ],
 )
@@ -66,7 +66,7 @@ def test_an_anchor_outside_its_measure_is_refused_by_the_measure() -> None:
 
 @pytest.mark.unit
 def test_a_leaf_starts_at_the_anchor_it_was_given() -> None:
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     anchor: TemporalAnchor = anchor_at(score=score, at=Fraction(1, 4))
 
     leaf: LeafRhythmicContainer = LeafRhythmicContainer.create(
@@ -81,7 +81,7 @@ def test_a_leaf_starts_at_the_anchor_it_was_given() -> None:
 
 @pytest.mark.unit
 def test_a_group_starts_at_its_own_anchor_while_empty() -> None:
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
 
     triplet: GroupRhythmicContainer = group(
         score=score,
@@ -97,7 +97,7 @@ def test_a_group_starts_at_its_own_anchor_while_empty() -> None:
 
 @pytest.mark.unit
 def test_a_group_keeps_its_anchor_when_its_first_child_goes() -> None:
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     triplet: GroupRhythmicContainer = eighth_triplet(
         score=score,
         parent=score.voice,
@@ -119,7 +119,7 @@ def test_a_group_keeps_its_anchor_when_its_first_child_goes() -> None:
 def test_an_empty_group_can_join_a_voice_that_already_has_content() -> None:
     """Before groups had an anchor of their own, ordering an empty group among its
     siblings read its first child and failed."""
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     note(
         score=score,
         parent=score.voice,
@@ -149,7 +149,7 @@ def test_an_empty_group_can_join_a_voice_that_already_has_content() -> None:
 
 @pytest.mark.unit
 def test_children_join_a_group_in_timeline_order_whatever_order_they_come_in() -> None:
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     triplet: GroupRhythmicContainer = group(
         score=score,
         parent=score.voice,
@@ -176,7 +176,7 @@ def test_children_join_a_group_in_timeline_order_whatever_order_they_come_in() -
 
 @pytest.mark.unit
 def test_a_group_still_refuses_children_past_its_written_size() -> None:
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     triplet: GroupRhythmicContainer = eighth_triplet(
         score=score, parent=score.voice, at=Fraction(0)
     )
@@ -193,7 +193,7 @@ def test_a_group_still_refuses_children_past_its_written_size() -> None:
 
 @pytest.mark.unit
 def test_a_group_that_scales_nothing_is_refused() -> None:
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
 
     with pytest.raises(ValueError, match="differ in written and occupied size"):
         group(
@@ -214,7 +214,7 @@ def test_a_group_that_scales_nothing_is_refused() -> None:
 def test_an_anchor_indexes_every_container_starting_at_it_across_scopes() -> None:
     """A group, a group nested in it and a leaf nested in that, all starting together,
     share one anchor and are all on it."""
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     outer: GroupRhythmicContainer = group(
         score=score,
         parent=score.voice,
@@ -245,7 +245,7 @@ def test_an_anchor_indexes_every_container_starting_at_it_across_scopes() -> Non
 
 @pytest.mark.unit
 def test_detaching_a_container_takes_it_off_its_anchor() -> None:
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     triplet: GroupRhythmicContainer = eighth_triplet(
         score=score, parent=score.voice, at=Fraction(0)
     )
@@ -259,7 +259,7 @@ def test_detaching_a_container_takes_it_off_its_anchor() -> None:
 
 @pytest.mark.unit
 def test_an_anchor_holding_only_a_group_is_not_an_orphan() -> None:
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     triplet: GroupRhythmicContainer = eighth_triplet(
         score=score, parent=score.voice, at=Fraction(0)
     )
@@ -272,11 +272,11 @@ def test_an_anchor_holding_only_a_group_is_not_an_orphan() -> None:
 
 @pytest.mark.unit
 def test_an_anchor_is_an_orphan_once_its_last_container_is_gone() -> None:
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     triplet: GroupRhythmicContainer = group(
         score=score,
         parent=score.voice,
-        at=Fraction(0),
+        at=Fraction(1, 4),
         written=size(RhythmicValue.EIGHTH, count=3),
         occupied=size(RhythmicValue.QUARTER),
     )
@@ -290,7 +290,7 @@ def test_an_anchor_is_an_orphan_once_its_last_container_is_gone() -> None:
 
 @pytest.mark.unit
 def test_an_anchor_refuses_a_container_starting_elsewhere() -> None:
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     leaf: LeafRhythmicContainer = note(
         score=score,
         parent=score.voice,
