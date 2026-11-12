@@ -33,7 +33,7 @@ def root() -> StubFrame:
 
 @pytest.fixture
 def measure(root: StubFrame) -> StubFrame:
-    """A 4/4 bar starting one whole note in: shifted, never compressed."""
+    """A 4/4 measure starting one whole note in: shifted, never compressed."""
     return StubFrame(
         name="measure",
         parent=root,

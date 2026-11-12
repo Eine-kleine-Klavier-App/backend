@@ -1,7 +1,7 @@
 import pytest
 
 from piano_app.domain.score.document.models.context import ClefChange, DynamicChange, Hairpin
-from piano_app.domain.score.document.models.notation import Clef, DynamicMarking, HairpinType
+from piano_app.domain.score.document.models.notation import Clef, DynamicMarking
 from piano_app.domain.score.document.models.structural import (
     Measure,
     MeasurePosition,
@@ -151,7 +151,7 @@ def test_span_voices_context_attaches_to_every_named_voice_too(
         start=anchor,
         end=another_anchor,
         voices=[v1, v2],
-        hairpin_type=HairpinType.CRESCENDO,
+        steps=1,
     )
 
     assert hairpin in v1.contexts

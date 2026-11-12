@@ -40,27 +40,27 @@ def test_cousins_convert_without_a_common_ancestor_walk(
     triplet: StubFrame,
 ) -> None:
     """Two frames hanging off the same root convert straight across — here the
-    tuplet's own coordinates into the bar that holds it."""
-    first_bar: StubFrame = StubFrame(
-        name="bar0",
+    tuplet's own coordinates into the measure that holds it."""
+    first_measure: StubFrame = StubFrame(
+        name="measure0",
         parent=root,
         to_parent=Transform.of_shift(offset=Fraction(0)),
         extent=Fraction(1),
     )
     inside_triplet: Point = Point(frame=triplet, value=Fraction(1, 8))
 
-    in_bar: Point = inside_triplet.to(frame=first_bar)
+    in_measure: Point = inside_triplet.to(frame=first_measure)
 
-    assert in_bar.value == Fraction(1, 3)
-    assert in_bar.to(frame=triplet).value == Fraction(1, 8)
+    assert in_measure.value == Fraction(1, 3)
+    assert in_measure.to(frame=triplet).value == Fraction(1, 8)
 
 
 @pytest.mark.unit
-def test_a_point_in_a_bar_that_does_not_hold_it_is_refused(
+def test_a_point_in_a_measure_that_does_not_hold_it_is_refused(
     measure: StubFrame,
     triplet: StubFrame,
 ) -> None:
-    """The triplet sits in the first bar, so asking for its coordinates in the
+    """The triplet sits in the first measure, so asking for its coordinates in the
     second has no answer."""
     with pytest.raises(OutsideFrameError):
         Point(frame=triplet, value=Fraction(1, 8)).to(frame=measure)
