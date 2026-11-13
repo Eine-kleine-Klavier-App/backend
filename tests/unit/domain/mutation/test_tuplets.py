@@ -9,16 +9,17 @@ from piano_app.domain.score.document.models.structural.rhythm import (
     GroupRhythmicContainer,
     LeafRhythmicContainer,
 )
-from piano_app.domain.score.document.services.mutation import build_engine
 from piano_app.domain.score.document.services.mutation.engine.log import MutationLog
-from piano_app.domain.score.document.services.mutation.instructions.requests.rhythmic import (
-    DeleteRhythmicGroupRequest,
+from piano_app.domain.score.document.services.mutation.instructions.requests.delete import (
+    DeleteRequest,
 )
 
 from ..scene import (
     NEW_STEP,
     Score,
     Slot,
+    anchor_positions,
+    build_engine,
     build_score,
     delete_entities,
     eighth_triplet,
@@ -44,10 +45,10 @@ _THIRD: Fraction = Fraction(1, 12)  # one triplet eighth on the timeline
 
 
 def _scene() -> tuple[Score, GroupRhythmicContainer]:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0, beats=(0,))
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0, beats=(0,))
     triplet: GroupRhythmicContainer = eighth_triplet(score=score, parent=score.voice, at=_Q)
-    quarters(score=score, bar=0, beats=(2, 3))
+    quarters(score=score, measure=0, beats=(2, 3))
 
     return score, triplet
 
@@ -112,15 +113,15 @@ def test_deleting_two_notes_of_a_triplet_keeps_the_third_in_place() -> None:
 
 
 @pytest.mark.unit
-def test_deleting_every_note_of_a_triplet_at_once_removes_the_triplet() -> None:
-    """Left without children, the triplet is removed; its room becomes a gap of the voice
-    and is filled with a quarter rest."""
+def test_deleting_every_note_of_a_triplet_at_once_beside_other_notes_keeps_it_tiled() -> None:
+    """Left without children but with other notes of its voice in its measure, the triplet
+    stays and its whole interior is tiled: one dotted quarter rest, written in its units."""
     score, triplet = _scene()
 
     delete_entities(score=score, entity_ids=_note_ids(triplet=triplet, indices=[0, 1, 2]))
 
-    assert layout(score=score) == _around([slot(0, _Q, _Q, "rest")])
-    assert triplet not in score.voice.children
+    assert layout(score=score) == _around([slot(0, _Q, 3 * _E, "rest", depth=1)])
+    assert score.voice.children[1] is triplet
     assert orphan_anchors(score=score) == []
     assert len(score.measures[0].anchors) == 4
 
@@ -128,7 +129,8 @@ def test_deleting_every_note_of_a_triplet_at_once_removes_the_triplet() -> None:
 @pytest.mark.unit
 def test_deleting_the_notes_of_a_triplet_one_by_one_leaves_a_triplet_of_rests() -> None:
     """Each hole is filled before the next delete, so the triplet never goes empty — and a
-    triplet of rests is valid."""
+    triplet of rests is valid. Each hole is refilled on its own and no rest is merged, so the
+    triplet ends as three eighth rests."""
     score, triplet = _scene()
     note_ids: list[str] = _note_ids(triplet=triplet, indices=[0, 1, 2])
 
@@ -193,7 +195,7 @@ def test_deleting_a_whole_triplet_gives_its_room_back_to_the_voice() -> None:
 
     build_engine().process(
         document=score.document,
-        requests=[DeleteRhythmicGroupRequest(target=triplet)],
+        requests=[DeleteRequest(target=triplet)],
     )
 
     assert layout(score=score) == _around([slot(0, _Q, _Q, "rest")])
@@ -203,26 +205,27 @@ def test_deleting_a_whole_triplet_gives_its_room_back_to_the_voice() -> None:
 
 @pytest.mark.unit
 def test_deleting_the_only_triplet_of_a_voice_reaps_its_anchor() -> None:
-    """With nothing else in the bar, the voice no longer reaches it: no rest wakes it, and
+    """With nothing else in the measure, the voice no longer reaches it: no rest wakes it, and
     every anchor of the triplet goes."""
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     triplet: GroupRhythmicContainer = eighth_triplet(score=score, parent=score.voice, at=_Q)
 
     build_engine().process(
         document=score.document,
-        requests=[DeleteRhythmicGroupRequest(target=triplet)],
+        requests=[DeleteRequest(target=triplet)],
     )
 
     assert score.voice.children == []
-    assert score.measures[0].anchors == []
+    assert anchor_positions(score.measures[0]) == [Fraction(0)]
 
 
 @pytest.mark.unit
-def test_a_hole_in_a_triplet_crossing_a_barline_moves_nothing_in_either_bar() -> None:
-    """A quarter triplet from beat four: its notes sit at 3/4 and 11/12 of the first bar
-    and 1/12 of the second. Deleting the middle one leaves the last in the next bar."""
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0, beats=(0, 1, 2))
+def test_a_hole_in_a_triplet_crossing_a_barline_moves_nothing_in_either_measure() -> None:
+    """A quarter triplet from beat four: its notes sit at 3/4 and 11/12 of the first measure
+    and 1/12 of the second. Deleting the middle one leaves the last in the next measure; the
+    rest filling the hole is cut at the barline, an eighth on either side."""
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0, beats=(0, 1, 2))
     triplet: GroupRhythmicContainer = group(
         score=score,
         parent=score.voice,
@@ -238,20 +241,21 @@ def test_a_hole_in_a_triplet_crossing_a_barline_moves_nothing_in_either_bar() ->
             rhythmic_value=RhythmicValue.QUARTER,
             step=index + 1,
         )
-    quarters(score=score, bar=1, beats=(1, 2, 3))
+    quarters(score=score, measure=1, beats=(1, 2, 3))
 
     delete_entities(score=score, entity_ids=_note_ids(triplet=triplet, indices=[1]))
 
-    assert layout(score=score)[3:6] == [
+    assert layout(score=score)[3:7] == [
         slot(0, Fraction(3, 4), _Q, "1", depth=1),
-        slot(0, Fraction(11, 12), _Q, "rest", depth=1),
+        slot(0, Fraction(11, 12), _E, "rest", depth=1),
+        slot(1, Fraction(0), _E, "rest", depth=1),
         slot(1, Fraction(1, 12), _Q, "3", depth=1),
     ]
 
 
 @pytest.mark.unit
 def test_a_hole_in_a_nested_triplet_moves_nothing_at_either_depth() -> None:
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     outer: GroupRhythmicContainer = group(
         score=score,
         parent=score.voice,
@@ -282,7 +286,7 @@ def test_a_hole_in_a_nested_triplet_moves_nothing_at_either_depth() -> None:
             rhythmic_value=RhythmicValue.EIGHTH,
             step=index + 3,
         )
-    quarters(score=score, bar=0, beats=(1, 2, 3))
+    quarters(score=score, measure=0, beats=(1, 2, 3))
 
     delete_entities(score=score, entity_ids=_note_ids(triplet=inner, indices=[0]))
 
@@ -312,10 +316,12 @@ def test_a_delete_inside_a_triplet_rolls_back_to_the_exact_triplet() -> None:
 
 
 # --- empty groups at the gesture boundary --------------------------------------------------
+# An empty group goes only where its voice holds nothing else in the measures it reaches;
+# anywhere else it stays and is tiled.
 
 
 @pytest.mark.unit
-def test_an_empty_group_nested_in_a_triplet_is_removed_and_its_slot_rested() -> None:
+def test_an_empty_group_nested_in_a_triplet_beside_other_notes_stays_and_is_tiled() -> None:
     score, triplet = _scene()
     first = triplet.children[0]
     assert isinstance(first, LeafRhythmicContainer)
@@ -330,14 +336,18 @@ def test_an_empty_group_nested_in_a_triplet_is_removed_and_its_slot_rested() -> 
 
     build_engine().process(document=score.document, requests=[])
 
-    assert [type(child) for child in triplet.children] == [LeafRhythmicContainer] * 3
-    assert layout(score=score)[1] == slot(0, _Q, _E, "rest", depth=1)
+    assert [type(child) for child in triplet.children] == [
+        GroupRhythmicContainer,
+        LeafRhythmicContainer,
+        LeafRhythmicContainer,
+    ]
+    assert layout(score=score)[1] == slot(0, _Q, 3 * Fraction(1, 16), "rest", depth=2)
     assert orphan_anchors(score=score) == []
 
 
 @pytest.mark.unit
-def test_an_empty_group_alone_in_its_bar_is_removed_and_the_bar_stays_empty() -> None:
-    score: Score = build_score(bars=1)
+def test_an_empty_group_alone_in_its_measure_is_removed_and_the_measure_stays_empty() -> None:
+    score: Score = build_score(measure_count=1)
     group(
         score=score,
         parent=score.voice,
@@ -349,4 +359,4 @@ def test_an_empty_group_alone_in_its_bar_is_removed_and_the_bar_stays_empty() ->
     build_engine().process(document=score.document, requests=[])
 
     assert score.voice.children == []
-    assert score.measures[0].anchors == []
+    assert anchor_positions(score.measures[0]) == [Fraction(0)]

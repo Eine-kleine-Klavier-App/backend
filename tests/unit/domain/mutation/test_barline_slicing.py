@@ -1,4 +1,5 @@
-from dataclasses import dataclass, replace
+from collections.abc import Callable
+from dataclasses import dataclass
 from fractions import Fraction
 
 import pytest
@@ -25,26 +26,26 @@ from piano_app.domain.score.document.models.structural.rhythm import (
     RhythmicContainerParent,
 )
 from piano_app.domain.score.document.services.helpers import iter_leaves
-from piano_app.domain.score.document.services.mutation import build_compiler, build_engine
+from piano_app.domain.score.document.services.mutation import build_compiler
 from piano_app.domain.score.document.services.mutation.compiler import InsertNoteIntent
-from piano_app.domain.score.document.services.mutation.compiler.steps import Placement, place
 from piano_app.domain.score.document.services.mutation.engine.log import MutationLog
 from piano_app.domain.score.document.services.mutation.instructions import (
     MutationRejectedError,
-    ResultRef,
-)
-from piano_app.domain.score.document.services.mutation.instructions.requests.material import (
-    CreateNoteRequest,
+    MutationRequest,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.rhythmic import (
     CreateLeafRequest,
+    NoteContent,
+    PlaceSpansRequest,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.temporal import (
     CreateTemporalAnchorRequest,
 )
 
-# Every bar is 4/4, so a position on the whole timeline reads directly as
-# "bar index + position inside the bar".
+from ..scene import Score, Snapshot, anchor_positions, build_engine, snapshot, with_start_contexts
+
+# Every measure is 4/4, so a position on the whole timeline reads directly as
+# "measure index + position inside the measure".
 
 _OLD_STEP: int = 0  # notes already in the score
 _NEW_STEP: int = 9  # notes of the insert under test
@@ -58,12 +59,12 @@ class _Score:
     measures: list[Measure]
 
 
-def _score(*, bars: int) -> _Score:
-    measures: list[Measure] = [Measure.create() for _ in range(bars)]
+def _score(*, measure_count: int) -> _Score:
+    measures: list[Measure] = [Measure.create() for _ in range(measure_count)]
     voice: Voice = Voice()
     staff: Staff = Staff()
-    document: ScoreDocument = ScoreDocument.create(
-        voices=[voice], staffs=[staff], measures=measures
+    document: ScoreDocument = with_start_contexts(
+        ScoreDocument.create(voices=[voice], staffs=[staff], measures=measures)
     )
 
     return _Score(document=document, voice=voice, staff=staff, measures=measures)
@@ -112,12 +113,12 @@ def _note(
     return leaf
 
 
-def _quarters(*, score: _Score, bar: int) -> None:
+def _quarters(*, score: _Score, measure: int) -> None:
     for beat in range(4):
         _note(
             score=score,
             parent=score.voice,
-            at=bar + Fraction(beat, 4),
+            at=measure + Fraction(beat, 4),
             value=RhythmicValue.QUARTER,
         )
 
@@ -180,7 +181,7 @@ def _quarter_triplet(*, score: _Score, at: Fraction) -> GroupRhythmicContainer:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _Part:
-    """A placement reduced to what the tests compare."""
+    """A placed part of the item reduced to what the tests compare."""
 
     in_group: bool
     measure_index: int
@@ -188,27 +189,53 @@ class _Part:
     written: Fraction
 
 
-def _parts(*, score: _Score, placements: list[Placement]) -> list[_Part]:
+def _place_at(
+    *,
+    score: _Score,
+    measure: Measure,
+    position: MeasurePosition,
+    length: Fraction,
+) -> list[_Part]:
+    """The parts of a note of written ``length`` placed on the live document — its spans
+    placed, what they meet gone — read back as the leaves holding its notes (a part joining
+    an old note as a chord included)."""
+    build_engine().process(
+        document=score.document,
+        requests=[
+            PlaceSpansRequest(
+                voice=score.voice,
+                measure=measure,
+                position=position,
+                written_length=length,
+                content=NoteContent(
+                    staff=score.staff,
+                    staff_step=_NEW_STEP,
+                    accidental=Accidental.NATURAL,
+                ),
+            ),
+        ],
+    )
+
     return [
         _Part(
-            in_group=isinstance(placement.scope, GroupRhythmicContainer),
-            measure_index=score.measures.index(placement.measure),
-            position=placement.position.value,
-            written=placement.written_value.fraction,
+            in_group=isinstance(leaf.parent, GroupRhythmicContainer),
+            measure_index=score.measures.index(leaf.anchor.measure),
+            position=leaf.anchor.position.value,
+            written=leaf.written_size.fraction,
         )
-        for placement in placements
+        for leaf in iter_leaves(score.voice)
+        if isinstance(leaf.carrier, NoteCarrier)
+        and any(note.staff_step == _NEW_STEP for note in leaf.carrier.notes)
     ]
 
 
 def _place(*, score: _Score, at: Fraction, length: Fraction) -> list[_Part]:
-    placements: list[Placement] = place(
-        voice=score.voice,
+    return _place_at(
+        score=score,
         measure=score.measures[int(at)],
         position=MeasurePosition.of_fraction(fraction=at - int(at)),
         length=length,
     )
-
-    return _parts(score=score, placements=placements)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -308,7 +335,7 @@ def _insert(
 
 
 def _slot(
-    bar: int,
+    measure: int,
     position: Fraction,
     written: Fraction,
     content: str,
@@ -316,7 +343,7 @@ def _slot(
     in_group: bool = False,
 ) -> _Slot:
     return _Slot(
-        measure_index=bar,
+        measure_index=measure,
         position=position,
         written=written,
         in_group=in_group,
@@ -327,13 +354,13 @@ def _slot(
 _Q: Fraction = Fraction(1, 4)
 
 
-# --- place: the parts of an item ---------------------------------------------------
+# --- placing: the parts of an item -------------------------------------------------
 
 
 @pytest.mark.unit
 def test_an_item_inside_one_measure_is_one_part_equal_to_itself() -> None:
     """No barline, no special path: the same mechanism simply yields a single part."""
-    score: _Score = _score(bars=2)
+    score: _Score = _score(measure_count=2)
 
     assert _place(score=score, at=Fraction(0), length=_Q) == [
         _Part(in_group=False, measure_index=0, position=Fraction(0), written=_Q),
@@ -342,7 +369,7 @@ def test_an_item_inside_one_measure_is_one_part_equal_to_itself() -> None:
 
 @pytest.mark.unit
 def test_an_item_is_cut_at_the_barline_it_crosses() -> None:
-    score: _Score = _score(bars=2)
+    score: _Score = _score(measure_count=2)
 
     assert _place(score=score, at=Fraction(3, 4), length=Fraction(1, 2)) == [
         _Part(in_group=False, measure_index=0, position=Fraction(3, 4), written=_Q),
@@ -352,7 +379,7 @@ def test_an_item_is_cut_at_the_barline_it_crosses() -> None:
 
 @pytest.mark.unit
 def test_an_item_is_cut_at_every_barline_it_crosses() -> None:
-    score: _Score = _score(bars=3)
+    score: _Score = _score(measure_count=3)
 
     assert _place(score=score, at=Fraction(3, 4), length=Fraction(3, 2)) == [
         _Part(in_group=False, measure_index=0, position=Fraction(3, 4), written=_Q),
@@ -363,9 +390,9 @@ def test_an_item_is_cut_at_every_barline_it_crosses() -> None:
 
 @pytest.mark.unit
 def test_a_cut_no_single_value_can_spell_becomes_consecutive_values() -> None:
-    """5/8 left in the second bar is no single value: it is written as a half and an
+    """5/8 left in the second measure is no single value: it is written as a half and an
     eighth, each its own part at its own position."""
-    score: _Score = _score(bars=2)
+    score: _Score = _score(measure_count=2)
 
     assert _place(score=score, at=Fraction(5, 8), length=Fraction(1)) == [
         _Part(in_group=False, measure_index=0, position=Fraction(5, 8), written=Fraction(3, 8)),
@@ -376,8 +403,8 @@ def test_a_cut_no_single_value_can_spell_becomes_consecutive_values() -> None:
 
 @pytest.mark.unit
 def test_an_item_ten_measures_long_goes_the_same_way() -> None:
-    """No limit on length: a quarter, nine whole bars and a dotted half."""
-    score: _Score = _score(bars=12)
+    """No limit on length: a quarter, nine whole measures and a dotted half."""
+    score: _Score = _score(measure_count=12)
 
     parts: list[_Part] = _place(score=score, at=Fraction(3, 4), length=Fraction(10))
 
@@ -389,7 +416,7 @@ def test_an_item_ten_measures_long_goes_the_same_way() -> None:
 @pytest.mark.unit
 def test_a_start_on_a_groups_first_instant_is_inside_the_group() -> None:
     """Half-open like every region: the group owns its own start."""
-    score: _Score = _score(bars=2)
+    score: _Score = _score(measure_count=2)
     _eighth_triplet(score=score, parent=score.voice, at=Fraction(1))
 
     assert _place(score=score, at=Fraction(1), length=Fraction(1, 8)) == [
@@ -403,7 +430,7 @@ def test_an_item_inside_a_group_is_cut_at_a_barline_in_the_groups_own_units() ->
     group, and the parts are written in its units — a written half in a quarter-note
     triplet sounds 1/3, cut into 1/4 + 1/12 sounding, written as a dotted quarter and an
     eighth. Both parts stay in the group."""
-    score: _Score = _score(bars=2)
+    score: _Score = _score(measure_count=2)
     _quarter_triplet(score=score, at=Fraction(3, 4))
 
     assert _place(score=score, at=Fraction(3, 4), length=Fraction(1, 2)) == [
@@ -416,58 +443,14 @@ def test_an_item_inside_a_group_is_cut_at_a_barline_in_the_groups_own_units() ->
 def test_a_part_beginning_where_a_group_begins_keeps_the_items_scope() -> None:
     """The scope is chosen once, from the item's start. A voice-level note whose second
     part begins exactly where a triplet begins must not fall into that triplet."""
-    score: _Score = _score(bars=2)
+    score: _Score = _score(measure_count=2)
     _eighth_triplet(score=score, parent=score.voice, at=Fraction(1))
 
     assert _place(score=score, at=Fraction(3, 4), length=Fraction(1, 2)) == [
         _Part(in_group=False, measure_index=0, position=Fraction(3, 4), written=_Q),
         _Part(in_group=False, measure_index=1, position=Fraction(0), written=_Q),
     ]
-
-
-@pytest.mark.unit
-def test_a_note_tearing_out_of_its_group_is_refused_even_on_a_barline() -> None:
-    """The group ends together with the measure: cutting at that barline would split the
-    note exactly at the group's end and hide the straddle. The fit is checked first."""
-    score: _Score = _score(bars=2)
-    _eighth_triplet(score=score, parent=score.voice, at=Fraction(3, 4))
-
-    with pytest.raises(MutationRejectedError, match="does not fit in its scope"):
-        _place(score=score, at=Fraction(3, 4) + Fraction(1, 12), length=Fraction(1, 2))
-
-
-@pytest.mark.unit
-def test_a_note_running_past_the_last_measure_is_refused() -> None:
-    """The same rule as a group: the timeline ends where the last measure does."""
-    score: _Score = _score(bars=2)
-
-    with pytest.raises(MutationRejectedError, match="does not fit in its scope"):
-        _place(score=score, at=Fraction(7, 4), length=Fraction(1, 2))
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("bar", [0, 1])
-def test_a_start_past_its_own_measure_is_refused(bar: int) -> None:
-    """5/4 in a 4/4 bar is a wrong address, not a point further along — in the last bar
-    it would even lie off the timeline."""
-    score: _Score = _score(bars=2)
-
-    with pytest.raises(MutationRejectedError, match="at or past the end of the measure"):
-        place(
-            voice=score.voice,
-            measure=score.measures[bar],
-            position=MeasurePosition.of(numerator=5, denominator=4),
-            length=_Q,
-        )
-
-
-@pytest.mark.unit
-def test_a_cut_no_value_can_spell_is_refused() -> None:
-    """A thirty-second starting 1/64 before the barline leaves a 1/64 cut."""
-    score: _Score = _score(bars=2)
-
-    with pytest.raises(MutationRejectedError, match="Cannot spell"):
-        _place(score=score, at=Fraction(63, 64), length=Fraction(1, 32))
+    assert not any(isinstance(child, GroupRhythmicContainer) for child in score.voice.children)
 
 
 # --- insert note: parts become tied notes ------------------------------------------
@@ -475,7 +458,7 @@ def test_a_cut_no_value_can_spell_is_refused() -> None:
 
 @pytest.mark.unit
 def test_a_note_across_a_barline_becomes_two_tied_notes() -> None:
-    score: _Score = _score(bars=2)
+    score: _Score = _score(measure_count=2)
 
     _insert(score=score, at=Fraction(3, 4), value=RhythmicValue.HALF)
 
@@ -490,7 +473,7 @@ def test_a_note_across_a_barline_becomes_two_tied_notes() -> None:
 
 @pytest.mark.unit
 def test_a_note_across_two_barlines_is_one_chain_of_ties() -> None:
-    score: _Score = _score(bars=3)
+    score: _Score = _score(measure_count=3)
 
     _insert(score=score, at=Fraction(3, 4), value=RhythmicValue.WHOLE, dots=1)
 
@@ -508,7 +491,7 @@ def test_a_note_across_two_barlines_is_one_chain_of_ties() -> None:
 def test_every_value_of_a_cut_is_tied_to_the_next() -> None:
     """A cut written as several values is tied inside itself too, not only at the
     barline: q. | h ~ e is one chain of three notes."""
-    score: _Score = _score(bars=2)
+    score: _Score = _score(measure_count=2)
 
     _insert(score=score, at=Fraction(5, 8), value=RhythmicValue.WHOLE)
 
@@ -527,9 +510,9 @@ def test_every_value_of_a_cut_is_tied_to_the_next() -> None:
 def test_parts_joining_existing_chords_tie_the_new_notes_only() -> None:
     """Each part lands on a same-size note and joins it as a chord; the tie must connect
     the inserted notes, leaving the old ones untied."""
-    score: _Score = _score(bars=2)
-    _quarters(score=score, bar=0)
-    _quarters(score=score, bar=1)
+    score: _Score = _score(measure_count=2)
+    _quarters(score=score, measure=0)
+    _quarters(score=score, measure=1)
 
     _insert(score=score, at=Fraction(3, 4), value=RhythmicValue.HALF)
 
@@ -543,9 +526,11 @@ def test_parts_joining_existing_chords_tie_the_new_notes_only() -> None:
 @pytest.mark.unit
 def test_a_group_at_the_next_barline_is_displaced_not_entered() -> None:
     """The second part stays in the voice, so the triplet it runs into is displaced as a
-    whole — exactly what the same note would do without a barline."""
-    score: _Score = _score(bars=2)
-    _quarters(score=score, bar=0)
+    whole — exactly what the same note would do without a barline. A group is never
+    joined, so the first part does not join the quarter it lands on either: that quarter
+    is replaced (axis-levels-and-generator-analyzers, per-element overwrite)."""
+    score: _Score = _score(measure_count=2)
+    _quarters(score=score, measure=0)
     _eighth_triplet(score=score, parent=score.voice, at=Fraction(1))
     for beat in range(1, 4):
         _note(
@@ -558,7 +543,7 @@ def test_a_group_at_the_next_barline_is_displaced_not_entered() -> None:
     _insert(score=score, at=Fraction(3, 4), value=RhythmicValue.HALF)
 
     assert _layout(score=score)[3:5] == [
-        _slot(0, Fraction(3, 4), _Q, "chord"),
+        _slot(0, Fraction(3, 4), _Q, "new"),
         _slot(1, Fraction(0), _Q, "new"),
     ]
     assert not any(slot.in_group for slot in _layout(score=score))
@@ -567,8 +552,8 @@ def test_a_group_at_the_next_barline_is_displaced_not_entered() -> None:
 
 @pytest.mark.unit
 def test_nested_groups_at_the_next_barline_are_displaced_together() -> None:
-    score: _Score = _score(bars=2)
-    _quarters(score=score, bar=0)
+    score: _Score = _score(measure_count=2)
+    _quarters(score=score, measure=0)
     outer: GroupRhythmicContainer = _group(
         score=score,
         parent=score.voice,
@@ -618,7 +603,7 @@ def test_nested_groups_at_the_next_barline_are_displaced_together() -> None:
 def test_a_group_straddling_the_barline_before_the_note_is_displaced_by_the_first_part() -> None:
     """The first part already displaces the triplet; the second then lands in the voice,
     with no group left for it to fall into."""
-    score: _Score = _score(bars=2)
+    score: _Score = _score(measure_count=2)
     for beat in range(3):
         _note(score=score, parent=score.voice, at=Fraction(beat, 4), value=RhythmicValue.QUARTER)
     _note(score=score, parent=score.voice, at=Fraction(3, 4), value=RhythmicValue.EIGHTH)
@@ -649,7 +634,7 @@ def test_a_group_straddling_the_barline_before_the_note_is_displaced_by_the_firs
 
 @pytest.mark.unit
 def test_a_note_inside_a_group_is_cut_at_the_barline_and_tied_inside_the_group() -> None:
-    score: _Score = _score(bars=2)
+    score: _Score = _score(measure_count=2)
     for beat in range(3):
         _note(score=score, parent=score.voice, at=Fraction(beat, 4), value=RhythmicValue.QUARTER)
     _quarter_triplet(score=score, at=Fraction(3, 4))
@@ -674,20 +659,21 @@ def test_a_note_inside_a_group_is_cut_at_the_barline_and_tied_inside_the_group()
 @pytest.mark.unit
 def test_a_sliced_note_is_one_gesture_and_rolls_back_as_one() -> None:
     """All the parts, their ties and the rests they wake are one journal."""
-    score: _Score = _score(bars=3)
+    score: _Score = _score(measure_count=3)
 
     log: MutationLog = _insert(score=score, at=Fraction(3, 4), value=RhythmicValue.WHOLE, dots=1)
     log.rollback()
 
     assert score.voice.children == []
-    assert all(measure.anchors == [] for measure in score.measures)
+    assert [anchor_positions(measure) for measure in score.measures] == [[Fraction(0)], [], []]
 
 
 @pytest.mark.unit
 def test_a_refused_insert_leaves_the_score_untouched() -> None:
-    """Refusals come from the compiler, before any request runs."""
-    score: _Score = _score(bars=2)
-    _quarters(score=score, bar=0)
+    """The compiler only addresses: the refusal comes from the first analyzer that locates
+    the half on the live document (it runs past the last measure), inside the gesture."""
+    score: _Score = _score(measure_count=2)
+    _quarters(score=score, measure=0)
     before: list[_Slot] = _layout(score=score)
 
     with pytest.raises(MutationRejectedError):
@@ -701,22 +687,9 @@ def test_a_refused_insert_leaves_the_score_untouched() -> None:
 # must come out of it exactly as it went in.
 
 
-@pytest.mark.unit
-def test_a_note_tearing_out_of_a_group_in_the_middle_of_a_measure_is_refused() -> None:
-    """No barline involved at all: the fit rule alone refuses it. A quarter from the
-    triplet's third eighth needs written 1/4 where only 1/8 is left."""
-    score: _Score = _score(bars=1)
-    _eighth_triplet(score=score, parent=score.voice, at=Fraction(1, 4))
-
-    with pytest.raises(MutationRejectedError, match="does not fit in its scope"):
-        _place(score=score, at=Fraction(1, 4) + Fraction(2, 12), length=_Q)
-
-
-@pytest.mark.unit
-def test_a_note_tearing_out_of_a_nested_group_is_refused_though_it_fits_the_outer() -> None:
-    """The scope is the innermost group: fitting the outer triplet does not help a note
-    that outgrows the sixteenth triplet it starts in."""
-    score: _Score = _score(bars=2)
+def _nested_triplets_in_measure_two() -> _Score:
+    """An eighth triplet opening measure two with a sixteenth triplet in its first eighth."""
+    score: _Score = _score(measure_count=2)
     outer: GroupRhythmicContainer = _group(
         score=score,
         parent=score.voice,
@@ -736,28 +709,14 @@ def test_a_note_tearing_out_of_a_nested_group_is_refused_though_it_fits_the_oute
     for index in (1, 2):
         _note(score=score, parent=outer, at=1 + Fraction(index, 12), value=RhythmicValue.EIGHTH)
 
-    # a quarter fits the outer triplet's written 3/8, but not the inner's written 3/16
-    with pytest.raises(MutationRejectedError, match="does not fit in its scope"):
-        _place(score=score, at=Fraction(1), length=_Q)
-
-
-@pytest.mark.unit
-def test_a_note_inside_a_group_crossing_a_barline_is_refused_when_it_outgrows_the_group() -> None:
-    """Crossing the barline inside the group is fine; running past the group's end is not,
-    wherever that end falls."""
-    score: _Score = _score(bars=2)
-    _quarter_triplet(score=score, at=Fraction(3, 4))
-
-    # the triplet's written interior is 3/4; a written whole from its start outgrows it
-    with pytest.raises(MutationRejectedError, match="does not fit in its scope"):
-        _place(score=score, at=Fraction(3, 4), length=Fraction(1))
+    return score
 
 
 @pytest.mark.unit
 def test_a_note_ending_exactly_on_its_groups_end_is_not_refused() -> None:
-    """The contrast every refusal above relies on: the end bound is inclusive, so a note
-    that fills its group to the last instant fits."""
-    score: _Score = _score(bars=1)
+    """The contrast every fit refusal below relies on: the end bound is inclusive, so a
+    note that fills its group to the last instant fits."""
+    score: _Score = _score(measure_count=1)
     _eighth_triplet(score=score, parent=score.voice, at=Fraction(1, 4))
 
     assert _place(score=score, at=Fraction(1, 4) + Fraction(1, 12), length=_Q) == [
@@ -768,216 +727,331 @@ def test_a_note_ending_exactly_on_its_groups_end_is_not_refused() -> None:
 
 
 @pytest.mark.unit
-def test_a_note_ending_a_sliver_past_the_last_measure_is_refused() -> None:
-    score: _Score = _score(bars=1)
+def test_a_gesture_refused_halfway_is_rolled_back_entirely() -> None:
+    """The first request of the gesture runs and changes the score; the second is
+    refused — nothing of the first may survive."""
+    score: _Score = _score(measure_count=1)
+    _quarters(score=score, measure=0)
+    before: list[_Slot] = _layout(score=score)
 
-    with pytest.raises(MutationRejectedError, match="does not fit in its scope"):
-        _place(score=score, at=Fraction(3, 4), length=_Q + Fraction(1, 32))
-
-
-@pytest.mark.unit
-def test_a_long_note_running_off_a_short_score_is_refused_whole() -> None:
-    """Ten bars asked of a five-bar score: nothing is placed, not even the bars that
-    exist — the tail is never silently dropped."""
-    score: _Score = _score(bars=5)
-
-    with pytest.raises(MutationRejectedError, match="does not fit in its scope"):
-        _place(score=score, at=Fraction(0), length=Fraction(10))
-
-
-@pytest.mark.unit
-def test_a_position_exactly_at_the_measure_end_is_refused() -> None:
-    """The end of a bar is the start of the next one, never a slot of its own."""
-    score: _Score = _score(bars=2)
-
-    with pytest.raises(MutationRejectedError, match="at or past the end of the measure"):
-        place(
-            voice=score.voice,
-            measure=score.measures[0],
-            position=MeasurePosition.of(numerator=1, denominator=1),
-            length=_Q,
+    with pytest.raises(MutationRejectedError, match="Container does not fit in its scope"):
+        build_engine().process(
+            document=score.document,
+            requests=[
+                PlaceSpansRequest(
+                    voice=score.voice,
+                    measure=score.measures[0],
+                    position=MeasurePosition.of(numerator=0, denominator=1),
+                    written_length=_value(RhythmicValue.HALF).fraction,
+                    content=NoteContent(
+                        staff=score.staff,
+                        staff_step=_NEW_STEP,
+                        accidental=Accidental.NATURAL,
+                    ),
+                ),
+                CreateLeafRequest(
+                    scope=score.voice,
+                    measure=score.measures[0],
+                    position=MeasurePosition.of(numerator=3, denominator=4),
+                    written_size=_size(RhythmicValue.HALF),
+                ),
+            ],
         )
 
+    assert _layout(score=score) == before
 
-@pytest.mark.unit
-def test_a_position_is_checked_against_its_own_measures_length() -> None:
-    """3/4 is inside a 4/4 bar but past the end of a 3/4 bar."""
+
+def _eighth_triplet_at(*, measure_count: int, at: Fraction) -> _Score:
+    score: _Score = _score(measure_count=measure_count)
+    _eighth_triplet(score=score, parent=score.voice, at=at)
+
+    return score
+
+
+def _quarter_triplet_across_the_barline() -> _Score:
+    score: _Score = _score(measure_count=2)
+    _quarter_triplet(score=score, at=Fraction(3, 4))
+
+    return score
+
+
+def _three_four_then_four_four() -> _Score:
     three_four: Measure = Measure.create(time_signature=_size(RhythmicValue.QUARTER, count=3))
+    measures: list[Measure] = [three_four, Measure.create()]
     voice: Voice = Voice()
-    ScoreDocument.create(voices=[voice], staffs=[Staff()], measures=[three_four, Measure.create()])
+    staff: Staff = Staff()
+    document: ScoreDocument = with_start_contexts(
+        ScoreDocument.create(voices=[voice], staffs=[staff], measures=measures)
+    )
 
-    with pytest.raises(MutationRejectedError, match="at or past the end of the measure"):
-        place(
-            voice=voice,
-            measure=three_four,
-            position=MeasurePosition.of(numerator=3, denominator=4),
-            length=_Q,
-        )
+    return _Score(document=document, voice=voice, staff=staff, measures=measures)
 
 
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("field", "wrong"),
-    [
-        ("voice_id", "staff"),
-        ("staff_id", "voice"),
-        ("measure_id", "voice"),
-    ],
-)
-def test_an_id_naming_the_wrong_kind_of_entity_is_refused(field: str, wrong: str) -> None:
-    score: _Score = _score(bars=1)
-    ids: dict[str, str] = {"staff": score.staff.id, "voice": score.voice.id}
-    intent: InsertNoteIntent = replace(
-        InsertNoteIntent(
-            voice_id=score.voice.id,
-            staff_id=score.staff.id,
-            measure_id=score.measures[0].id,
+def _quarters_around_a_triplet() -> _Score:
+    """Quarters on beats one to three, an eighth triplet on beat four, a measure of quarters."""
+    score: _Score = _score(measure_count=2)
+    for beat in range(3):
+        _note(score=score, parent=score.voice, at=Fraction(beat, 4), value=RhythmicValue.QUARTER)
+    _eighth_triplet(score=score, parent=score.voice, at=Fraction(3, 4))
+    _quarters(score=score, measure=1)
+
+    return score
+
+
+def _compile_insert(*, score: _Score, voice_id: str, staff_id: str, measure_id: str) -> object:
+    return build_compiler().compile(
+        document=score.document,
+        intent=InsertNoteIntent(
+            voice_id=voice_id,
+            staff_id=staff_id,
+            measure_id=measure_id,
             position=MeasurePosition.of(numerator=0, denominator=1),
             written_value=_value(RhythmicValue.QUARTER),
             staff_step=_NEW_STEP,
             accidental=Accidental.NATURAL,
         ),
-        **{field: ids[wrong]},
     )
 
-    with pytest.raises(MutationRejectedError, match="must be"):
-        build_compiler().compile(document=score.document, intent=intent)
+
+def _run(*, score: _Score, request: MutationRequest) -> MutationLog:
+    return build_engine().process(document=score.document, requests=[request])
 
 
-@pytest.mark.unit
-def test_an_unknown_id_is_refused() -> None:
-    score: _Score = _score(bars=1)
-    intent: InsertNoteIntent = InsertNoteIntent(
-        voice_id="nowhere",
-        staff_id=score.staff.id,
-        measure_id=score.measures[0].id,
-        position=MeasurePosition.of(numerator=0, denominator=1),
-        written_value=_value(RhythmicValue.QUARTER),
-        staff_step=_NEW_STEP,
-        accidental=Accidental.NATURAL,
-    )
-
-    with pytest.raises(MutationRejectedError, match="nowhere"):
-        build_compiler().compile(document=score.document, intent=intent)
-
-
-@pytest.mark.unit
-def test_the_leaf_analyzer_refuses_a_voice_level_leaf_past_the_score_end() -> None:
-    """The invariant's owner holds it for any source of requests, not only for what the
-    compiler already checked: a request sent straight to the engine is refused too."""
-    score: _Score = _score(bars=1)
-
-    with pytest.raises(MutationRejectedError, match="Container does not fit in its scope"):
-        build_engine().process(
-            document=score.document,
-            requests=[
-                CreateLeafRequest(
-                    scope=score.voice,
-                    measure=score.measures[0],
-                    position=MeasurePosition.of(numerator=3, denominator=4),
-                    size=_size(RhythmicValue.HALF),
-                    out=ResultRef[LeafRhythmicContainer](),
-                )
-            ],
-        )
-
-
-@pytest.mark.unit
-def test_the_leaf_analyzer_refuses_a_leaf_outgrowing_the_group_it_is_given() -> None:
-    score: _Score = _score(bars=1)
-    _eighth_triplet(score=score, parent=score.voice, at=Fraction(0))
+def _leaf_outgrowing_the_group_it_is_given(score: _Score) -> MutationLog:
     group = score.voice.children[0]
     assert isinstance(group, GroupRhythmicContainer)
 
-    with pytest.raises(MutationRejectedError, match="Container does not fit in its scope"):
-        build_engine().process(
-            document=score.document,
-            requests=[
-                CreateLeafRequest(
-                    scope=group,
-                    measure=score.measures[0],
-                    # the third eighth: written 1/4 in, a quarter needs up to 1/2 of 3/8
-                    position=MeasurePosition.of(numerator=2, denominator=12),
-                    size=_size(RhythmicValue.QUARTER),
-                    out=ResultRef[LeafRhythmicContainer](),
-                )
-            ],
+    return _run(
+        score=score,
+        request=CreateLeafRequest(
+            scope=group,
+            measure=score.measures[0],
+            # the third eighth: written 1/4 in, a quarter needs up to 1/2 of 3/8
+            position=MeasurePosition.of(numerator=2, denominator=12),
+            written_size=_size(RhythmicValue.QUARTER),
+        ),
+    )
+
+
+_FIT: str = "does not fit in its scope"
+_PAST_MEASURE: str = "at or past the end of the measure"
+
+_REFUSALS: list[object] = [
+    # the group ends together with the measure: cutting at that barline would split the note
+    # exactly at the group's end and hide the straddle — the fit is checked first
+    pytest.param(
+        lambda: _eighth_triplet_at(measure_count=2, at=Fraction(3, 4)),
+        lambda score: _place(
+            score=score, at=Fraction(3, 4) + Fraction(1, 12), length=Fraction(1, 2)
+        ),
+        _FIT,
+        id="a note tearing out of its group even on a barline",
+    ),
+    # the same rule as a group: the timeline ends where the last measure does
+    pytest.param(
+        lambda: _score(measure_count=2),
+        lambda score: _place(score=score, at=Fraction(7, 4), length=Fraction(1, 2)),
+        _FIT,
+        id="a note running past the last measure",
+    ),
+    # 5/4 in a 4/4 measure is a wrong address, not a point further along — in the last
+    # measure it would even lie off the timeline
+    *[
+        pytest.param(
+            lambda: _score(measure_count=2),
+            lambda score, measure=measure: _place_at(
+                score=score,
+                measure=score.measures[measure],
+                position=MeasurePosition.of(numerator=5, denominator=4),
+                length=_Q,
+            ),
+            _PAST_MEASURE,
+            id=f"a start past its own measure (measure {measure})",
         )
-
-
-@pytest.mark.unit
-def test_the_anchor_analyzer_refuses_a_position_past_its_measure() -> None:
-    score: _Score = _score(bars=2)
-
-    with pytest.raises(MutationRejectedError, match="at or past the end of the measure"):
-        build_engine().process(
-            document=score.document,
-            requests=[
-                CreateTemporalAnchorRequest(
-                    measure=score.measures[0],
-                    position=MeasurePosition.of(numerator=5, denominator=4),
-                    out=ResultRef[TemporalAnchor](),
-                )
-            ],
-        )
-
-
-@pytest.mark.unit
-def test_a_gesture_refused_halfway_is_rolled_back_entirely() -> None:
-    """The first request of the gesture runs and changes the score; the second is
-    refused — nothing of the first may survive."""
-    score: _Score = _score(bars=1)
-    _quarters(score=score, bar=0)
-    before: list[_Slot] = _layout(score=score)
-
-    with pytest.raises(MutationRejectedError, match="Container does not fit in its scope"):
-        build_engine().process(
-            document=score.document,
-            requests=[
-                CreateNoteRequest(
-                    scope=score.voice,
-                    staff=score.staff,
-                    measure=score.measures[0],
-                    position=MeasurePosition.of(numerator=0, denominator=1),
-                    written_value=_value(RhythmicValue.HALF),
-                    staff_step=_NEW_STEP,
-                    accidental=Accidental.NATURAL,
-                    out=ResultRef[Note](),
-                ),
-                CreateLeafRequest(
-                    scope=score.voice,
-                    measure=score.measures[0],
-                    position=MeasurePosition.of(numerator=3, denominator=4),
-                    size=_size(RhythmicValue.HALF),
-                    out=ResultRef[LeafRhythmicContainer](),
-                ),
-            ],
-        )
-
-    assert _layout(score=score) == before
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("at", "value", "dots"),
-    [
-        (Fraction(7, 4), RhythmicValue.HALF, 0),  # past the last bar
-        (Fraction(3, 4) + Fraction(1, 12), RhythmicValue.HALF, 0),  # tears out of the triplet
+        for measure in (0, 1)
     ],
-)
-def test_every_refused_insert_leaves_the_score_exactly_as_it_was(
-    at: Fraction,
-    value: RhythmicValue,
-    dots: int,
+    # a thirty-second starting 1/64 before the barline leaves a 1/64 cut
+    pytest.param(
+        lambda: _score(measure_count=2),
+        lambda score: _place(score=score, at=Fraction(63, 64), length=Fraction(1, 32)),
+        "Cannot spell",
+        id="a cut no value can spell",
+    ),
+    # no barline involved at all: a quarter from the triplet's third eighth needs written 1/4
+    # where only 1/8 is left
+    pytest.param(
+        lambda: _eighth_triplet_at(measure_count=1, at=_Q),
+        lambda score: _place(score=score, at=_Q + Fraction(2, 12), length=_Q),
+        _FIT,
+        id="a note tearing out of a group in the middle of a measure",
+    ),
+    # the scope is the innermost group: a quarter fits the outer triplet's written 3/8, but
+    # not the inner's written 3/16
+    pytest.param(
+        _nested_triplets_in_measure_two,
+        lambda score: _place(score=score, at=Fraction(1), length=_Q),
+        _FIT,
+        id="a note tearing out of a nested group though it fits the outer",
+    ),
+    # crossing the barline inside the group is fine; running past the group's end is not —
+    # the triplet's written interior is 3/4, a written whole from its start outgrows it
+    pytest.param(
+        _quarter_triplet_across_the_barline,
+        lambda score: _place(score=score, at=Fraction(3, 4), length=Fraction(1)),
+        _FIT,
+        id="a note inside a group crossing a barline outgrowing the group",
+    ),
+    pytest.param(
+        lambda: _score(measure_count=1),
+        lambda score: _place(score=score, at=Fraction(3, 4), length=_Q + Fraction(1, 32)),
+        _FIT,
+        id="a note ending a sliver past the last measure",
+    ),
+    # ten measures asked of a five-measure score: nothing is placed, not even the measures
+    # that exist — the tail is never silently dropped
+    pytest.param(
+        lambda: _score(measure_count=5),
+        lambda score: _place(score=score, at=Fraction(0), length=Fraction(10)),
+        _FIT,
+        id="a long note running off a short score",
+    ),
+    # the end of a measure is the start of the next one, never a slot of its own
+    pytest.param(
+        lambda: _score(measure_count=2),
+        lambda score: _place_at(
+            score=score,
+            measure=score.measures[0],
+            position=MeasurePosition.of(numerator=1, denominator=1),
+            length=_Q,
+        ),
+        _PAST_MEASURE,
+        id="a position exactly at the measure end",
+    ),
+    # 3/4 is inside a 4/4 measure but past the end of a 3/4 measure
+    pytest.param(
+        _three_four_then_four_four,
+        lambda score: _place_at(
+            score=score,
+            measure=score.measures[0],
+            position=MeasurePosition.of(numerator=3, denominator=4),
+            length=_Q,
+        ),
+        _PAST_MEASURE,
+        id="a position checked against its own measure's length",
+    ),
+    pytest.param(
+        lambda: _score(measure_count=1),
+        lambda score: _compile_insert(
+            score=score,
+            voice_id=score.staff.id,
+            staff_id=score.staff.id,
+            measure_id=score.measures[0].id,
+        ),
+        "must be",
+        id="a staff named as the voice",
+    ),
+    pytest.param(
+        lambda: _score(measure_count=1),
+        lambda score: _compile_insert(
+            score=score,
+            voice_id=score.voice.id,
+            staff_id=score.voice.id,
+            measure_id=score.measures[0].id,
+        ),
+        "must be",
+        id="a voice named as the staff",
+    ),
+    pytest.param(
+        lambda: _score(measure_count=1),
+        lambda score: _compile_insert(
+            score=score,
+            voice_id=score.voice.id,
+            staff_id=score.staff.id,
+            measure_id=score.voice.id,
+        ),
+        "must be",
+        id="a voice named as the measure",
+    ),
+    pytest.param(
+        lambda: _score(measure_count=1),
+        lambda score: _compile_insert(
+            score=score,
+            voice_id="nowhere",
+            staff_id=score.staff.id,
+            measure_id=score.measures[0].id,
+        ),
+        "nowhere",
+        id="an unknown id",
+    ),
+    # the invariant's owner holds it for any source of requests, not only for what the
+    # compiler already checked: a request sent straight to the engine is refused too
+    pytest.param(
+        lambda: _score(measure_count=1),
+        lambda score: _run(
+            score=score,
+            request=CreateLeafRequest(
+                scope=score.voice,
+                measure=score.measures[0],
+                position=MeasurePosition.of(numerator=3, denominator=4),
+                written_size=_size(RhythmicValue.HALF),
+            ),
+        ),
+        "Container does not fit in its scope",
+        id="the leaf analyzer: a voice-level leaf past the score end",
+    ),
+    pytest.param(
+        lambda: _eighth_triplet_at(measure_count=1, at=Fraction(0)),
+        _leaf_outgrowing_the_group_it_is_given,
+        "Container does not fit in its scope",
+        id="the leaf analyzer: a leaf outgrowing the group it is given",
+    ),
+    pytest.param(
+        lambda: _score(measure_count=2),
+        lambda score: _run(
+            score=score,
+            request=CreateTemporalAnchorRequest(
+                measure=score.measures[0],
+                position=MeasurePosition.of(numerator=5, denominator=4),
+            ),
+        ),
+        _PAST_MEASURE,
+        id="the anchor analyzer: a position past its measure",
+    ),
+    pytest.param(
+        _quarters_around_a_triplet,
+        lambda score: _insert(score=score, at=Fraction(7, 4), value=RhythmicValue.HALF),
+        _FIT,
+        id="an insert past the last measure",
+    ),
+    pytest.param(
+        _quarters_around_a_triplet,
+        lambda score: _insert(
+            score=score, at=Fraction(3, 4) + Fraction(1, 12), value=RhythmicValue.HALF
+        ),
+        _FIT,
+        id="an insert tearing out of the triplet",
+    ),
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("scene", "attempt", "match"), _REFUSALS)
+def test_every_refusal_leaves_the_score_exactly_as_it_was(
+    scene: Callable[[], _Score],
+    attempt: Callable[[_Score], object],
+    match: str,
 ) -> None:
-    score: _Score = _score(bars=2)
-    for beat in range(3):
-        _note(score=score, parent=score.voice, at=Fraction(beat, 4), value=RhythmicValue.QUARTER)
-    _eighth_triplet(score=score, parent=score.voice, at=Fraction(3, 4))
-    _quarters(score=score, bar=1)
-    before: list[_Slot] = _layout(score=score)
+    """Whether the compiler, the item's own analyzers or a request sent straight to the
+    engine refuses: the leaves, groups, ties and anchors are exactly as they were."""
+    score: _Score = scene()
+    view: Score = Score(
+        document=score.document, voice=score.voice, staff=score.staff, measures=score.measures
+    )
+    before: Snapshot = snapshot(score=view)
+    leaves: list[LeafRhythmicContainer] = iter_leaves(score.voice)
 
-    with pytest.raises(MutationRejectedError):
-        _insert(score=score, at=at, value=value, dots=dots)
+    with pytest.raises(MutationRejectedError, match=match):
+        attempt(score)
 
-    assert _layout(score=score) == before
+    assert snapshot(score=view) == before
+    assert all(kept is leaf for kept, leaf in zip(iter_leaves(score.voice), leaves, strict=True))

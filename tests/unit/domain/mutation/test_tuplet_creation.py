@@ -25,29 +25,39 @@ from piano_app.domain.score.document.models.structural.rhythm import (
 from piano_app.domain.score.document.services.geometry import Span
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
 from piano_app.domain.score.document.services.helpers import RhythmicSizeMapper
-from piano_app.domain.score.document.services.mutation import build_compiler, build_engine
+from piano_app.domain.score.document.services.mutation import build_compiler
 from piano_app.domain.score.document.services.mutation.compiler import (
     CreateTupletWithNoteIntent,
     CreateTupletWithRestIntent,
     DeleteBatchIntent,
 )
+from piano_app.domain.score.document.services.mutation.engine.analyzers.intent import (
+    RemoveAnalyzer,
+)
 from piano_app.domain.score.document.services.mutation.engine.log import MutationLog
+from piano_app.domain.score.document.services.mutation.engine.typing import MutationWorkItem
 from piano_app.domain.score.document.services.mutation.instructions import (
     MutationRejectedError,
     MutationRequest,
 )
-from piano_app.domain.score.document.services.mutation.instructions.requests.rhythmic import (
-    DeleteRhythmicGroupRequest,
+from piano_app.domain.score.document.services.mutation.instructions.requests.delete import (
+    DeleteRequest,
+)
+from piano_app.domain.score.document.services.mutation.instructions.requests.intent import (
+    RemoveRequest,
 )
 
 from ..scene import (
     NEW_STEP,
+    GroupSlot,
     Score,
     Slot,
+    build_engine,
     build_score,
     delete_entities,
     eighth_triplet,
     group,
+    group_layout,
     insert_note,
     layout,
     note,
@@ -57,6 +67,7 @@ from ..scene import (
     slot,
     tie_pairs,
     value,
+    with_start_contexts,
 )
 
 _Q: Fraction = Fraction(1, 4)
@@ -79,8 +90,12 @@ def _create_tuplet(
     first: DottedRhythmicValue | None = None,
 ) -> MutationLog:
     """A tuplet created with its first rest — by default as long as the first value its
-    interior is spelled into, which a tuplet crossing a barline names explicitly so its
-    first element stays before the barline."""
+    interior is spelled into. A tuplet crossing a barline names a first rest that ends at
+    or before the barline, so no first rest is cut there.
+
+    The fill never touches the first rest: it keeps its value, and each hole left in the
+    tuplet is filled with a rest item of its own.
+    """
     intent: CreateTupletWithRestIntent = CreateTupletWithRestIntent(
         voice_id=score.voice.id,
         staff_id=score.staff.id,
@@ -128,7 +143,7 @@ def _assert_tuplet(
 ) -> None:
     """The tuplet sounds over [starts_at, starts_at + lasts) of the timeline and its
     interior is tiled exactly to its written size."""
-    span: Span = ScoreGeometry(origin=score.measures[0]).global_span_of(container=tuplet)
+    span: Span = ScoreGeometry(document=score.document).global_span_of(container=tuplet)
 
     assert (span.start, span.length) == (starts_at, lasts)
     assert (
@@ -147,32 +162,36 @@ def _assert_refused(
 ) -> None:
     """The tuplet is refused and the score comes out exactly as it went in."""
     before: list[Slot] = layout(score=score)
+    groups: list[GroupSlot] = group_layout(score=score)
     anchors: int = sum(len(measure.anchors) for measure in score.measures)
 
     with pytest.raises(MutationRejectedError, match=message):
         _create_tuplet(score=score, at=at, written=written, occupied=occupied)
 
     assert layout(score=score) == before
+    assert group_layout(score=score) == groups
     assert sum(len(measure.anchors) for measure in score.measures) == anchors
 
 
 def _triplet_scene() -> tuple[Score, GroupRhythmicContainer]:
     """A quarter, an eighth triplet on beat two (staff steps 1, 2, 3), two quarters."""
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0, beats=(0,))
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0, beats=(0,))
     triplet: GroupRhythmicContainer = eighth_triplet(score=score, parent=score.voice, at=_Q)
-    quarters(score=score, bar=0, beats=(2, 3))
+    quarters(score=score, measure=0, beats=(2, 3))
 
     return score, triplet
 
 
-def _six_eight_bar() -> Score:
-    """One 6/8 bar of six eighths."""
+def _six_eight_measure() -> Score:
+    """One 6/8 measure of six eighths."""
     measures: list[Measure] = [Measure.create(time_signature=size(RhythmicValue.EIGHTH, count=6))]
     voice: Voice = Voice()
     staff: Staff = Staff()
     score: Score = Score(
-        document=ScoreDocument.create(voices=[voice], staffs=[staff], measures=measures),
+        document=with_start_contexts(
+            ScoreDocument.create(voices=[voice], staffs=[staff], measures=measures)
+        ),
         voice=voice,
         staff=staff,
         measures=measures,
@@ -196,8 +215,8 @@ def _six_eight_bar() -> Score:
 def test_a_new_tuplet_displaces_the_note_it_covers() -> None:
     """Created with a first rest as long as its whole interior, written in its own units:
     a dotted quarter in a triplet of eighths, sounding a quarter."""
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     _eighth_triplet_at(score=score, at=_Q)
 
@@ -214,7 +233,7 @@ def test_a_new_tuplet_displaces_the_note_it_covers() -> None:
 def test_a_new_tuplet_displaces_a_longer_note_whole() -> None:
     """A half under a quarter-long tuplet goes as a whole; what it leaves past the tuplet
     becomes a rest of the voice."""
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     for beat in (0, 2):
         note(
             score=score,
@@ -237,10 +256,10 @@ def test_a_new_tuplet_displaces_a_longer_note_whole() -> None:
 def test_a_tuplet_starting_on_another_groups_first_instant_is_nested_in_it() -> None:
     """Half-open like a note: the start belongs to the group, so a sixteenth triplet there
     takes the room of the outer triplet's first eighth."""
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0, beats=(0,))
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0, beats=(0,))
     outer: GroupRhythmicContainer = eighth_triplet(score=score, parent=score.voice, at=_Q)
-    quarters(score=score, bar=0, beats=(2, 3))
+    quarters(score=score, measure=0, beats=(2, 3))
 
     _create_tuplet(
         score=score,
@@ -261,11 +280,11 @@ def test_a_tuplet_starting_on_another_groups_first_instant_is_nested_in_it() -> 
 
 @pytest.mark.unit
 def test_a_tuplet_may_cross_a_barline() -> None:
-    """A quarter triplet from beat four takes a half: the rest of the first bar and the
+    """A quarter triplet from beat four takes a half: the rest of the first measure and the
     first beat of the next, displacing a quarter in each."""
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0)
-    quarters(score=score, bar=1)
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0)
+    quarters(score=score, measure=1)
 
     _create_tuplet(
         score=score,
@@ -280,7 +299,8 @@ def test_a_tuplet_may_cross_a_barline() -> None:
         slot(0, _Q, _Q, "0"),
         slot(0, Fraction(1, 2), _Q, "0"),
         slot(0, Fraction(3, 4), _Q, "rest", depth=1),
-        slot(0, Fraction(11, 12), Fraction(1, 2), "rest", depth=1),
+        slot(0, Fraction(11, 12), _E, "rest", depth=1),
+        slot(1, Fraction(0), Fraction(3, 8), "rest", depth=1),
         slot(1, _Q, _Q, "0"),
         slot(1, Fraction(1, 2), _Q, "0"),
         slot(1, Fraction(3, 4), _Q, "0"),
@@ -289,11 +309,11 @@ def test_a_tuplet_may_cross_a_barline() -> None:
 
 
 @pytest.mark.unit
-def test_a_tuplet_wakes_a_sleeping_bar_of_its_voice() -> None:
-    """The voice reaches the bar through the tuplet and its first element, so the rest of
-    the bar is tiled too."""
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0)
+def test_a_tuplet_wakes_a_sleeping_measure_of_its_voice() -> None:
+    """The voice reaches the measure through the tuplet and its first element, so the rest of
+    the measure is tiled too."""
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0)
 
     _eighth_triplet_at(score=score, at=Fraction(5, 4))
 
@@ -306,8 +326,8 @@ def test_a_tuplet_wakes_a_sleeping_bar_of_its_voice() -> None:
 
 @pytest.mark.unit
 def test_notes_go_into_a_created_tuplet_by_the_ordinary_insert() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
     _eighth_triplet_at(score=score, at=_Q)
 
     insert_note(score=score, at=_Q, rhythmic_value=RhythmicValue.EIGHTH)
@@ -322,8 +342,8 @@ def test_notes_go_into_a_created_tuplet_by_the_ordinary_insert() -> None:
 
 @pytest.mark.unit
 def test_creating_a_tuplet_is_one_gesture_and_rolls_back_as_one() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
     before: list[Slot] = layout(score=score)
 
     log: MutationLog = _eighth_triplet_at(score=score, at=_Q)
@@ -340,14 +360,14 @@ def test_creating_a_tuplet_is_one_gesture_and_rolls_back_as_one() -> None:
 @pytest.mark.parametrize(
     ("at", "written", "occupied", "message"),
     [
-        # 5/4 in a 4/4 bar is a wrong address
+        # 5/4 in a 4/4 measure is a wrong address
         (
             Fraction(5, 4),
             size(RhythmicValue.EIGHTH, count=3),
             size(RhythmicValue.QUARTER),
             "at or past the end of the measure",
         ),
-        # a half-long tuplet from beat four of the last bar runs off the score
+        # a half-long tuplet from beat four of the last measure runs off the score
         (
             Fraction(3, 4),
             size(RhythmicValue.QUARTER, count=3),
@@ -369,8 +389,8 @@ def test_a_refused_tuplet_leaves_the_score_untouched(
     occupied: RhythmicSize,
     message: str,
 ) -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
     before: list[Slot] = layout(score=score)
 
     with pytest.raises(MutationRejectedError, match=message):
@@ -397,9 +417,9 @@ def test_a_refused_tuplet_leaves_the_score_untouched(
 def test_a_tuplet_tearing_out_of_the_group_it_starts_in_is_refused() -> None:
     """From the triplet's third eighth only one written eighth is left; a tuplet taking a
     quarter there does not fit."""
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     eighth_triplet(score=score, parent=score.voice, at=Fraction(0))
-    quarters(score=score, bar=0, beats=(1, 2, 3))
+    quarters(score=score, measure=0, beats=(1, 2, 3))
 
     with pytest.raises(MutationRejectedError, match="does not fit in its scope"):
         _create_tuplet(
@@ -420,10 +440,10 @@ def _first_note_id(*, leaf: LeafRhythmicContainer) -> str:
 
 @pytest.mark.unit
 def test_a_deleted_tuplet_gives_its_room_back_to_the_voice() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0, beats=(0,))
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0, beats=(0,))
     triplet: GroupRhythmicContainer = eighth_triplet(score=score, parent=score.voice, at=_Q)
-    quarters(score=score, bar=0, beats=(2, 3))
+    quarters(score=score, measure=0, beats=(2, 3))
     start: TemporalAnchor = triplet.start_anchor
 
     delete_entities(score=score, entity_ids=[triplet.id])
@@ -440,9 +460,11 @@ def test_a_deleted_tuplet_gives_its_room_back_to_the_voice() -> None:
 
 @pytest.mark.unit
 def test_what_a_listed_tuplet_holds_is_left_to_its_cascade() -> None:
-    """A note, a carrier and a nested group inside a listed tuplet are pruned; the batch
-    deletes the outermost listed group only, ahead of anything else listed."""
-    score: Score = build_score(bars=1)
+    """A note, a carrier and a nested group inside a listed tuplet are pruned; the batch's
+    remove request deletes the outermost listed group only, ahead of anything else
+    listed. Read off its analyzer with no engine: nothing executes, so nothing is
+    skipped."""
+    score: Score = build_score(measure_count=1)
     outer: GroupRhythmicContainer = group(
         score=score,
         parent=score.voice,
@@ -480,7 +502,7 @@ def test_what_a_listed_tuplet_holds_is_left_to_its_cascade() -> None:
     )
     assert isinstance(shallow.carrier, NoteCarrier)
 
-    requests: list[MutationRequest] = list(
+    compiled: list[MutationRequest] = list(
         build_compiler().compile(
             document=score.document,
             intent=DeleteBatchIntent(
@@ -495,11 +517,17 @@ def test_what_a_listed_tuplet_holds_is_left_to_its_cascade() -> None:
         )
     )
 
-    assert requests[0] == DeleteRhythmicGroupRequest(target=outer)
+    assert len(compiled) == 1
+    remove: MutationRequest = compiled[0]
+    assert isinstance(remove, RemoveRequest)
+    requests: list[MutationWorkItem] = list(
+        RemoveAnalyzer().analyze(request=remove, geometry=ScoreGeometry(document=score.document))
+    )
+
+    assert requests[0] == DeleteRequest(target=outer)
     assert len(requests) == 2
     assert not any(
-        isinstance(request, DeleteRhythmicGroupRequest) and request.target is inner
-        for request in requests
+        isinstance(request, DeleteRequest) and request.target is inner for request in requests
     )
 
 
@@ -528,8 +556,8 @@ def test_tuplets_of_every_ratio_in_four_four_take_one_beat_and_are_tiled(
     occupied: RhythmicSize,
     rests: list[Fraction],
 ) -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     _create_tuplet(score=score, at=Fraction(0), written=written, occupied=occupied)
 
@@ -541,9 +569,9 @@ def test_tuplets_of_every_ratio_in_four_four_take_one_beat_and_are_tiled(
 
 
 @pytest.mark.unit
-def test_a_quarter_triplet_takes_half_a_bar() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+def test_a_quarter_triplet_takes_half_a_measure() -> None:
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     _create_tuplet(
         score=score,
@@ -569,11 +597,11 @@ def test_a_quarter_triplet_takes_half_a_bar() -> None:
         (4, Fraction(1, 2)),  # a quadruplet squeezes four eighths into three
     ],
 )
-def test_duplets_and_quadruplets_in_six_eight_take_half_the_bar(
+def test_duplets_and_quadruplets_in_six_eight_take_half_the_measure(
     count: int,
     rest: Fraction,
 ) -> None:
-    score: Score = _six_eight_bar()
+    score: Score = _six_eight_measure()
 
     _create_tuplet(
         score=score,
@@ -596,15 +624,15 @@ def test_duplets_and_quadruplets_in_six_eight_take_half_the_bar(
     ]
 
 
-# --- position in the bar --------------------------------------------------------------------
+# --- position in the measure --------------------------------------------------------------------
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("beat", [0, 1, 2, 3])
 def test_a_tuplet_on_any_beat_replaces_exactly_that_beat(beat: int) -> None:
     """On the last beat it ends exactly on the barline."""
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     _eighth_triplet_at(score=score, at=Fraction(beat, 4))
 
@@ -622,8 +650,8 @@ def test_a_tuplet_on_any_beat_replaces_exactly_that_beat(beat: int) -> None:
 
 @pytest.mark.unit
 def test_an_offbeat_tuplet_displaces_both_beats_it_touches_and_rests_fill_the_rest() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     _eighth_triplet_at(score=score, at=_E)
 
@@ -638,8 +666,8 @@ def test_an_offbeat_tuplet_displaces_both_beats_it_touches_and_rests_fill_the_re
 
 @pytest.mark.unit
 def test_two_tuplets_side_by_side_keep_their_own_room() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     _eighth_triplet_at(score=score, at=Fraction(0))
     _eighth_triplet_at(score=score, at=_Q)
@@ -655,8 +683,8 @@ def test_two_tuplets_side_by_side_keep_their_own_room() -> None:
 
 @pytest.mark.unit
 def test_a_tuplet_across_a_barline_displaces_a_long_note_before_it_whole() -> None:
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0, beats=(0, 1))
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0, beats=(0, 1))
     note(
         score=score,
         parent=score.voice,
@@ -664,7 +692,7 @@ def test_a_tuplet_across_a_barline_displaces_a_long_note_before_it_whole() -> No
         rhythmic_value=RhythmicValue.HALF,
         step=0,
     )
-    quarters(score=score, bar=1)
+    quarters(score=score, measure=1)
 
     _create_tuplet(
         score=score,
@@ -679,7 +707,8 @@ def test_a_tuplet_across_a_barline_displaces_a_long_note_before_it_whole() -> No
         slot(0, _Q, _Q, "0"),
         slot(0, Fraction(1, 2), _Q, "rest"),
         slot(0, Fraction(3, 4), _Q, "rest", depth=1),
-        slot(0, Fraction(11, 12), Fraction(1, 2), "rest", depth=1),
+        slot(0, Fraction(11, 12), _E, "rest", depth=1),
+        slot(1, Fraction(0), Fraction(3, 8), "rest", depth=1),
         slot(1, _Q, _Q, "0"),
         slot(1, Fraction(1, 2), _Q, "0"),
         slot(1, Fraction(3, 4), _Q, "0"),
@@ -688,12 +717,13 @@ def test_a_tuplet_across_a_barline_displaces_a_long_note_before_it_whole() -> No
 
 @pytest.mark.unit
 def test_a_tuplet_across_two_barlines() -> None:
-    """Three wholes in the time of two from the middle of the first bar reach the middle
-    of the third. Its first rest, a dotted half, stays before the first barline; the rest
-    of its interior is spelled as a dotted whole and a dotted half."""
-    score: Score = build_score(bars=3)
-    for bar in range(3):
-        quarters(score=score, bar=bar)
+    """Three wholes in the time of two from the middle of the first measure reach the middle
+    of the third. Its interior is tiled measure by measure in its own units: its first rest,
+    a dotted half, fills its part of the first measure; a dotted whole rest fills the second
+    and a dotted half rest its part of the third."""
+    score: Score = build_score(measure_count=3)
+    for measure in range(3):
+        quarters(score=score, measure=measure)
 
     _create_tuplet(
         score=score,
@@ -722,9 +752,9 @@ def test_a_tuplet_across_two_barlines() -> None:
 
 
 @pytest.mark.unit
-def test_a_tuplet_running_into_a_sleeping_bar_wakes_it() -> None:
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0)
+def test_a_tuplet_running_into_a_sleeping_measure_wakes_it() -> None:
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0)
 
     _create_tuplet(
         score=score,
@@ -736,16 +766,17 @@ def test_a_tuplet_running_into_a_sleeping_bar_wakes_it() -> None:
 
     assert layout(score=score)[3:] == [
         slot(0, Fraction(3, 4), _Q, "rest", depth=1),
-        slot(0, Fraction(11, 12), Fraction(1, 2), "rest", depth=1),
+        slot(0, Fraction(11, 12), _E, "rest", depth=1),
+        slot(1, Fraction(0), Fraction(3, 8), "rest", depth=1),
         slot(1, _Q, Fraction(3, 4), "rest"),
     ]
 
 
 @pytest.mark.unit
-def test_a_tuplet_starting_on_a_barline_belongs_to_the_next_bar() -> None:
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0)
-    quarters(score=score, bar=1)
+def test_a_tuplet_starting_on_a_barline_belongs_to_the_next_measure() -> None:
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0)
+    quarters(score=score, measure=1)
 
     _eighth_triplet_at(score=score, at=Fraction(1))
 
@@ -757,8 +788,8 @@ def test_a_tuplet_starting_on_a_barline_belongs_to_the_next_bar() -> None:
 
 @pytest.mark.unit
 def test_a_tuplet_ending_exactly_on_the_last_barline_fits() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     _create_tuplet(
         score=score,
@@ -777,8 +808,8 @@ def test_a_tuplet_ending_exactly_on_the_last_barline_fits() -> None:
 
 @pytest.mark.unit
 def test_a_tuplet_ending_a_sliver_past_the_last_barline_is_refused() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     _assert_refused(
         score=score,
@@ -793,9 +824,9 @@ def test_a_tuplet_ending_a_sliver_past_the_last_barline_is_refused() -> None:
 def test_a_note_inserted_into_a_tuplet_across_a_barline_is_cut_and_tied_inside_it() -> None:
     """A written half from the triplet's second quarter: the barline falls 1/8 written
     in, so it becomes an eighth before it and a dotted quarter after, both in the group."""
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0)
-    quarters(score=score, bar=1)
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0)
+    quarters(score=score, measure=1)
     _create_tuplet(
         score=score,
         at=Fraction(3, 4),
@@ -866,8 +897,8 @@ def test_a_nested_tuplet_may_take_exactly_the_rest_of_its_group() -> None:
 
 @pytest.mark.unit
 def test_tuplets_nest_three_deep_and_share_one_anchor() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     _eighth_triplet_at(score=score, at=Fraction(0))
     _create_tuplet(
@@ -894,10 +925,10 @@ def test_tuplets_nest_three_deep_and_share_one_anchor() -> None:
 @pytest.mark.unit
 def test_a_nested_tuplet_may_cross_the_barline_its_group_crosses() -> None:
     """In a quarter triplet from beat four, an eighth triplet in its second quarter starts
-    at 11/12 and ends at 1/12 of the next bar."""
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0)
-    quarters(score=score, bar=1)
+    at 11/12 and ends at 1/12 of the next measure."""
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0)
+    quarters(score=score, measure=1)
     _create_tuplet(
         score=score,
         at=Fraction(3, 4),
@@ -1007,11 +1038,11 @@ def test_a_tuplet_fitting_the_outer_group_but_not_the_inner_one_is_refused() -> 
 
 @pytest.mark.unit
 def test_a_tuplet_past_the_end_of_a_group_across_a_barline_is_refused() -> None:
-    """The quarter triplet from beat four ends at 1/4 of the next bar; from its third
+    """The quarter triplet from beat four ends at 1/4 of the next measure; from its third
     quarter only one written quarter is left."""
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0)
-    quarters(score=score, bar=1)
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0)
+    quarters(score=score, measure=1)
     _create_tuplet(
         score=score,
         at=Fraction(3, 4),
@@ -1047,7 +1078,7 @@ def test_a_nested_tuplet_that_scales_nothing_is_refused() -> None:
 
 @pytest.mark.unit
 def test_a_tuplet_over_a_tied_note_takes_the_tie_with_the_note() -> None:
-    score: Score = build_score(bars=2)
+    score: Score = build_score(measure_count=2)
     insert_note(score=score, at=Fraction(3, 4), rhythmic_value=RhythmicValue.HALF)
     assert tie_pairs(score=score) == [(NEW_STEP, NEW_STEP)]
 
@@ -1059,8 +1090,8 @@ def test_a_tuplet_over_a_tied_note_takes_the_tie_with_the_note() -> None:
 
 @pytest.mark.unit
 def test_a_tuplet_over_a_chord_displaces_every_note_of_it() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
     insert_note(score=score, at=_Q, rhythmic_value=RhythmicValue.QUARTER)
 
     _eighth_triplet_at(score=score, at=_Q)
@@ -1078,15 +1109,17 @@ def test_a_tuplet_in_one_voice_leaves_another_voice_alone() -> None:
     upper: Voice = Voice()
     lower: Voice = Voice()
     staff: Staff = Staff()
-    document: ScoreDocument = ScoreDocument.create(
-        voices=[upper, lower],
-        staffs=[staff],
-        measures=measures,
+    document: ScoreDocument = with_start_contexts(
+        ScoreDocument.create(
+            voices=[upper, lower],
+            staffs=[staff],
+            measures=measures,
+        )
     )
     score: Score = Score(document=document, voice=upper, staff=staff, measures=measures)
     other: Score = Score(document=document, voice=lower, staff=staff, measures=measures)
-    quarters(score=score, bar=0)
-    quarters(score=other, bar=0)
+    quarters(score=score, measure=0)
+    quarters(score=other, measure=0)
     before: list[Slot] = layout(score=other)
 
     _eighth_triplet_at(score=score, at=_Q)
@@ -1097,8 +1130,8 @@ def test_a_tuplet_in_one_voice_leaves_another_voice_alone() -> None:
 
 @pytest.mark.unit
 def test_a_tuplet_naming_a_measure_as_its_voice_is_refused() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     with pytest.raises(MutationRejectedError, match="must be Voice"):
         build_compiler().compile(
@@ -1140,10 +1173,10 @@ def test_deleting_only_a_nested_tuplet_leaves_a_rest_in_its_slot_of_the_outer_on
 
 
 @pytest.mark.unit
-def test_deleting_a_tuplet_across_a_barline_rests_both_bars_and_reaps_its_anchors() -> None:
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0)
-    quarters(score=score, bar=1)
+def test_deleting_a_tuplet_across_a_barline_rests_both_measures_and_reaps_its_anchors() -> None:
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0)
+    quarters(score=score, measure=1)
     _create_tuplet(
         score=score,
         at=Fraction(3, 4),
@@ -1183,10 +1216,10 @@ def test_rolling_back_a_nested_tuplet_restores_the_outer_one() -> None:
 
 
 @pytest.mark.unit
-def test_rolling_back_a_tuplet_across_a_barline_restores_both_bars() -> None:
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0)
-    quarters(score=score, bar=1)
+def test_rolling_back_a_tuplet_across_a_barline_restores_both_measures() -> None:
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0)
+    quarters(score=score, measure=1)
     before: list[Slot] = layout(score=score)
 
     log: MutationLog = _create_tuplet(
@@ -1233,8 +1266,8 @@ def _with_note(
 
 @pytest.mark.unit
 def test_a_tuplet_starts_with_the_note_it_is_created_with() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     _with_note(
         score=score,
@@ -1252,8 +1285,8 @@ def test_a_tuplet_starts_with_the_note_it_is_created_with() -> None:
 
 @pytest.mark.unit
 def test_a_tuplet_starts_with_the_rest_it_is_created_with() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
 
     _create_tuplet(
         score=score,
@@ -1275,8 +1308,8 @@ def test_a_tuplet_starts_with_the_rest_it_is_created_with() -> None:
 @pytest.mark.unit
 def test_a_first_element_longer_than_the_tuplet_is_refused() -> None:
     """A written half does not fit an eighth triplet's three written eighths."""
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
     before: list[Slot] = layout(score=score)
 
     with pytest.raises(MutationRejectedError, match="does not fit in its scope"):
@@ -1292,27 +1325,34 @@ def test_a_first_element_longer_than_the_tuplet_is_refused() -> None:
 
 
 @pytest.mark.unit
-def test_a_first_element_crossing_a_barline_is_refused_for_now() -> None:
+def test_a_first_element_crossing_a_barline_is_cut_inside_the_tuplet() -> None:
     """In a quarter triplet from beat four a written half sounds a third and runs past the
-    barline; slicing it inside a tuplet that does not exist yet is not possible."""
-    score: Score = build_score(bars=2)
-    quarters(score=score, bar=0)
-    quarters(score=score, bar=1)
+    barline: the tuplet is created first, then the half is cut at the barline inside it
+    (3/8 | 1/8 written) and its pieces are tied (tuplet-creation, 2026-10-18)."""
+    score: Score = build_score(measure_count=2)
+    quarters(score=score, measure=0)
+    quarters(score=score, measure=1)
 
-    with pytest.raises(MutationRejectedError, match="may not cross a barline yet"):
-        _with_note(
-            score=score,
-            at=Fraction(3, 4),
-            written=size(RhythmicValue.QUARTER, count=3),
-            occupied=size(RhythmicValue.HALF),
-            rhythmic_value=RhythmicValue.HALF,
-        )
+    _with_note(
+        score=score,
+        at=Fraction(3, 4),
+        written=size(RhythmicValue.QUARTER, count=3),
+        occupied=size(RhythmicValue.HALF),
+        rhythmic_value=RhythmicValue.HALF,
+    )
+
+    assert layout(score=score)[3:6] == [
+        slot(0, Fraction(3, 4), Fraction(3, 8), str(NEW_STEP), depth=1),
+        slot(1, Fraction(0), _E, str(NEW_STEP), depth=1),
+        slot(1, Fraction(1, 12), _Q, "rest", depth=1),
+    ]
+    assert tie_pairs(score=score) == [(NEW_STEP, NEW_STEP)]
 
 
 @pytest.mark.unit
 def test_a_tuplet_and_its_first_note_are_one_gesture() -> None:
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
+    score: Score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
     before: list[Slot] = layout(score=score)
 
     log: MutationLog = _with_note(
