@@ -17,10 +17,10 @@ from ...domain.scene import Score, build_score, group, layout, note, quarters, s
 
 
 def _score_with_groups() -> Score:
-    """A plain bar, then a bar with a triplet holding a nested triplet at its start (all
-    three sharing one anchor) and a quarter triplet crossing into a third bar."""
-    score: Score = build_score(bars=3)
-    quarters(score=score, bar=0)
+    """A plain measure, then a measure with a triplet holding a nested triplet at its start (all
+    three sharing one anchor) and a quarter triplet crossing into a third measure."""
+    score: Score = build_score(measure_count=3)
+    quarters(score=score, measure=0)
 
     outer: GroupRhythmicContainer = group(
         score=score,
@@ -52,7 +52,7 @@ def _score_with_groups() -> Score:
             rhythmic_value=RhythmicValue.EIGHTH,
             step=4,
         )
-    quarters(score=score, bar=1, beats=(1, 2))
+    quarters(score=score, measure=1, beats=(1, 2))
 
     crossing: GroupRhythmicContainer = group(
         score=score,
@@ -69,7 +69,7 @@ def _score_with_groups() -> Score:
             rhythmic_value=RhythmicValue.QUARTER,
             step=5,
         )
-    quarters(score=score, bar=2, beats=(1, 2, 3))
+    quarters(score=score, measure=2, beats=(1, 2, 3))
 
     return score
 
@@ -107,3 +107,25 @@ def test_a_decoded_group_starts_at_its_own_decoded_anchor() -> None:
     assert outer.start_anchor in decoded.measures[1].anchors
     assert outer in outer.start_anchor.containers
     assert len(outer.start_anchor.containers) == 3
+
+
+@pytest.mark.unit
+def test_beam_end_offsets_survive_codec_roundtrip() -> None:
+    from piano_app.domain.score.document.models.presentation import (
+        EndpointOffsets,
+        PresentationTarget,
+    )
+    from piano_app.domain.score.document.services.helpers import find_beams, iter_leaves
+
+    from ...domain.mutation.scenarios.test_intent_split_beam import _line
+
+    score, _, beam = _line(4)
+    score.document.presentation.set_endpoints(
+        target=PresentationTarget(entity_id=beam.id), value=EndpointOffsets(left=-1.5, right=2.25)
+    )
+    codec = ScoreDocumentCodec()
+    decoded = codec.deserialize(codec.serialize(score.document))
+    carriers = [leaf.carrier for leaf in iter_leaves(decoded.voices[0]) if leaf.carrier is not None]
+    restored = find_beams(carriers=carriers)[0]
+    assert restored.id == beam.id
+    assert decoded.presentation.endpoints == score.document.presentation.endpoints
