@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,20 +18,24 @@ def _document() -> ScoreDocument:
 
 
 def _draft() -> VersionedDraftDocument:
-    return VersionedDraftDocument(
+    return VersionedDraftDocument.create(
         draft_id="draft",
-        document=_document(),
-        version=0,
+        title="Draft",
         author_id="author",
         ref_score_id=None,
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+        document=_document(),
+        version=0,
     )
 
 
 def _snapshot() -> DraftSnapshot:
     return DraftSnapshot.create(
         draft_id="draft",
+        title="Draft",
         author_id="author",
         ref_score_id=None,
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
         revisions=[_document()],
         cursor=0,
         version=0,
@@ -153,3 +158,67 @@ async def test_aclose_waits_for_archiving_without_closing_injected_cache() -> No
     release.set()
     await closing
     cache.aclose.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_delete_removes_cold_before_hot() -> None:
+    archive, cache = AsyncMock(), AsyncMock()
+    operations: list[str] = []
+
+    async def cold_delete(*, draft_id: str) -> None:
+        assert draft_id == "draft"
+        operations.append("cold")
+
+    async def hot_delete(*, draft_id: str) -> None:
+        assert draft_id == "draft"
+        operations.append("hot")
+
+    archive.delete.side_effect = cold_delete
+    cache.delete.side_effect = hot_delete
+    history = TieredDraftHistory(archive=archive, cache=cache)
+    await history.delete(draft_id="draft")
+    assert operations == ["cold", "hot"]
+
+
+@pytest.mark.unit
+async def test_failed_cold_delete_preserves_hot_copy() -> None:
+    archive, cache = AsyncMock(), AsyncMock()
+    archive.delete.side_effect = RuntimeError("archive unavailable")
+    history = TieredDraftHistory(archive=archive, cache=cache)
+    with pytest.raises(RuntimeError, match="archive unavailable"):
+        await history.delete(draft_id="draft")
+    cache.delete.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_late_restore_cannot_resurrect_deleted_copy() -> None:
+    from typing import cast
+
+    from fakeredis.aioredis import FakeRedis
+    from redis.asyncio import Redis
+
+    from piano_app.adapters.outbound.redis.draft_cache import RedisDraftCache
+    from piano_app.adapters.outbound.shared.codec import ScoreDocumentCodec
+
+    entered, release = asyncio.Event(), asyncio.Event()
+    archive = AsyncMock()
+
+    async def held_snapshot(*, draft_id: str) -> DraftSnapshot:
+        assert draft_id == "draft"
+        entered.set()
+        await release.wait()
+        return _snapshot()
+
+    archive.get_snapshot.side_effect = held_snapshot
+    cache = RedisDraftCache(client=cast(Redis, FakeRedis()), codec=ScoreDocumentCodec())
+    history = TieredDraftHistory(archive=archive, cache=cache)
+    try:
+        restoring = asyncio.create_task(history.get(draft_id="draft"))
+        await entered.wait()
+        await history.delete(draft_id="draft")
+        release.set()
+        assert await restoring is None
+        assert await cache.get(draft_id="draft") is None
+    finally:
+        release.set()
+        await cache.aclose()

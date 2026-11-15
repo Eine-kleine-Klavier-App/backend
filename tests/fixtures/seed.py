@@ -34,24 +34,24 @@ class _SeedNote:
     step: int
 
 
-# Seed content: several fully-tiled 4/4 bars across both voices/staffs, with notes on
+# Seed content: several fully-tiled 4/4 measures across both voices/staffs, with notes on
 # ledger lines above (upper) and below (lower) to exercise ledger drawing; the rest of
-# the bars stay empty (sleeping). Each pattern tiles a full 4/4 bar. Steps are the
+# the measures stay empty (sleeping). Each pattern tiles a full 4/4 measure. Steps are the
 # clef-independent staff geometry (0 = the staff's bottom line).
 _Q = RhythmicValue.QUARTER
 _H = RhythmicValue.HALF
 _W = RhythmicValue.WHOLE
 _E = RhythmicValue.EIGHTH
 
-# a bar pattern: (numerator, denominator, value, staff_step) tuples that tile 4/4
-_BarPattern = tuple[tuple[int, int, RhythmicValue, int], ...]
+# a measure pattern: (numerator, denominator, value, staff_step) tuples that tile 4/4
+_MeasurePattern = tuple[tuple[int, int, RhythmicValue, int], ...]
 
-_UPPER_PATTERNS: tuple[_BarPattern, ...] = (
+_UPPER_PATTERNS: tuple[_MeasurePattern, ...] = (
     ((0, 1, _Q, 4), (1, 4, _Q, 6), (1, 2, _Q, 8), (3, 4, _Q, 10)),
     ((0, 1, _E, 2), (1, 8, _E, 4), (1, 4, _Q, 7), (1, 2, _H, 9)),
     ((0, 1, _H, 5), (1, 2, _Q, 3), (3, 4, _Q, 1)),
 )
-_LOWER_PATTERNS: tuple[_BarPattern, ...] = (
+_LOWER_PATTERNS: tuple[_MeasurePattern, ...] = (
     ((0, 1, _H, -2), (1, 2, _H, -4)),
     ((0, 1, _W, -6),),
     ((0, 1, _Q, 0), (1, 4, _Q, -2), (1, 2, _H, -4)),
@@ -61,11 +61,11 @@ _LOWER_PATTERNS: tuple[_BarPattern, ...] = (
 def _seed_notes() -> list[_SeedNote]:
     notes: list[_SeedNote] = []
 
-    def add(bar: int, staff: int, voice: int, pattern: _BarPattern) -> None:
+    def add(measure: int, staff: int, voice: int, pattern: _MeasurePattern) -> None:
         for numerator, denominator, value, step in pattern:
             notes.append(
                 _SeedNote(
-                    measure=bar,
+                    measure=measure,
                     staff=staff,
                     voice=voice,
                     numerator=numerator,
@@ -75,16 +75,16 @@ def _seed_notes() -> list[_SeedNote]:
                 )
             )
 
-    for bar in range(_CONTENT_BARS):
-        add(bar, 0, 0, _UPPER_PATTERNS[bar % len(_UPPER_PATTERNS)])
-        add(bar, 1, 1, _LOWER_PATTERNS[bar % len(_LOWER_PATTERNS)])
+    for measure in range(_CONTENT_BARS):
+        add(measure, 0, 0, _UPPER_PATTERNS[measure % len(_UPPER_PATTERNS)])
+        add(measure, 1, 1, _LOWER_PATTERNS[measure % len(_LOWER_PATTERNS)])
 
     return notes
 
 
 def build_seed_document(*, engine: MutationEngine, compiler: MutationCompiler) -> ScoreDocument:
-    """A blank grand staff (2 staves, 2 voices, 5 empty 4/4 bars) seeded with a couple
-    of full bars of notes across both voices and staves.
+    """A blank grand staff (2 staffs, 2 voices, 5 empty 4/4 measures) seeded with a couple
+    of full measures of notes across both voices and staffs.
 
     Test fixture only — not used by the running app (that seeds nothing at startup
     anymore; real drafts are created through DraftService). Useful wherever a test
@@ -92,7 +92,7 @@ def build_seed_document(*, engine: MutationEngine, compiler: MutationCompiler) -
     building it up through individual engine requests.
 
     The structure is built with the direct sink; the notes are inserted through the
-    engine so tiling stays correct (fill posts the remaining rests). Untouched bars
+    engine so tiling stays correct (fill posts the remaining rests). Untouched measures
     sleep until edited.
     """
     staffs: list[Staff] = [Staff() for _ in range(_STAFF_COUNT)]

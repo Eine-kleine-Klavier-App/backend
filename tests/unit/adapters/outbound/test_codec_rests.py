@@ -15,7 +15,7 @@ from ...domain.scene import Score, build_score, insert_note, layout
 @pytest.mark.unit
 def test_notes_and_rests_survive_a_round_trip() -> None:
     codec: ScoreDocumentCodec = ScoreDocumentCodec()
-    score: Score = build_score(bars=1)
+    score: Score = build_score(measure_count=1)
     insert_note(score=score, at=Fraction(1, 4), rhythmic_value=RhythmicValue.QUARTER, step=5)
 
     serialized = codec.serialize(score.document)

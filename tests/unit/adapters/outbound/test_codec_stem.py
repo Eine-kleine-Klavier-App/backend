@@ -1,41 +1,29 @@
-import pytest
+from fractions import Fraction
+
+from tests.unit.domain.scene import build_score, note_at, quarters
 
 from piano_app.adapters.outbound.shared.codec import ScoreDocumentCodec
-from piano_app.domain.score.document.models import ScoreDocument
-from piano_app.domain.score.document.models.material import NoteCarrier
-from piano_app.domain.score.document.models.notation import StemDirection, StemOverride
-from piano_app.domain.score.document.models.structural.rhythm import LeafRhythmicContainer
-
-from ...domain.scene import Score, build_score, quarters
-
-# A stem override is saved with its note carrier. Compared by value: the override is a
-# value object, so equality there does prove the content survived.
+from piano_app.domain.score.document.models.notation import StemDirection
+from piano_app.domain.score.document.models.presentation import (
+    PresentationTarget,
+    ReferencePoint,
+    VerticalOffset,
+)
 
 
-def _stems(*, document: ScoreDocument) -> list[StemOverride | None]:
-    stems: list[StemOverride | None] = []
-    for child in document.voices[0].children:
-        assert isinstance(child, LeafRhythmicContainer)
-        assert isinstance(child.carrier, NoteCarrier)
-        stems.append(child.carrier.stem)
-
-    return stems
-
-
-@pytest.mark.unit
-def test_stem_overrides_survive_a_round_trip() -> None:
-    codec: ScoreDocumentCodec = ScoreDocumentCodec()
-    score: Score = build_score(bars=1)
-    quarters(score=score, bar=0)
-    carriers: list[NoteCarrier] = []
-    for child in score.voice.children:
-        assert isinstance(child, LeafRhythmicContainer)
-        assert isinstance(child.carrier, NoteCarrier)
-        carriers.append(child.carrier)
-    carriers[0].set_stem(stem=StemOverride(direction=StemDirection.UP, length_percent=150))
-    carriers[3].set_stem(stem=StemOverride(direction=StemDirection.DOWN))
-
-    decoded: ScoreDocument = codec.deserialize(codec.serialize(score.document))
-
-    assert _stems(document=decoded) == _stems(document=score.document)
-    assert codec.serialize(decoded) == codec.serialize(score.document)
+def test_stem_placement_survives_roundtrip_outside_carrier():
+    score = build_score(measure_count=1)
+    quarters(score=score, measure=0)
+    target = PresentationTarget(
+        entity_id=note_at(score=score, at=Fraction(0)).note_carrier.id,
+        reference=ReferencePoint.STEM_TIP,
+    )
+    score.document.presentation.set_vertical(target=target, value=VerticalOffset(value=-1.75))
+    score.document.presentation.set_direction(target=target, value=StemDirection.UP)
+    codec = ScoreDocumentCodec()
+    data = codec.serialize(score.document)
+    assert all("stem" not in row for row in data["carriers"])
+    restored = codec.deserialize(data)
+    assert restored.presentation.vertical[target].value == -1.75
+    assert restored.presentation.directions[target] is StemDirection.UP
+    assert codec.serialize(restored) == data

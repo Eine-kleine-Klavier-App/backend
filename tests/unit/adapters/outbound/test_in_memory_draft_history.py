@@ -1,8 +1,9 @@
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 
 import pytest
 
+from piano_app.adapters.outbound.in_memory import draft_history
 from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
 from piano_app.application.ports.score import (
     DraftStoreNotFoundError,
@@ -13,11 +14,18 @@ from piano_app.domain.score.document import ScoreDocument
 
 
 class _Clock:
+    """Stands in for ``datetime`` inside the adapter: each ``now()`` returns the next of
+    the given moments, so timestamps are exact instead of racing the wall clock."""
+
     def __init__(self, *values: datetime) -> None:
         self._values: Iterator[datetime] = iter(values)
 
-    def __call__(self) -> datetime:
+    def now(self, tz: tzinfo | None = None) -> datetime:
         return next(self._values)
+
+
+def _freeze(monkeypatch: pytest.MonkeyPatch, *values: datetime) -> None:
+    monkeypatch.setattr(draft_history, "datetime", _Clock(*values))
 
 
 def _document() -> ScoreDocument:
@@ -53,9 +61,12 @@ async def test_commands_raise_for_missing_draft(operation: str) -> None:
 
 
 @pytest.mark.unit
-async def test_create_returns_versioned_document_with_metadata() -> None:
+async def test_create_returns_versioned_document_with_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     created_at = datetime(2026, 1, 1, tzinfo=UTC)
-    history = InMemoryDraftHistory(clock=_Clock(created_at))
+    _freeze(monkeypatch, created_at)
+    history = InMemoryDraftHistory()
     document = _document()
 
     created = await history.create(
@@ -77,15 +88,17 @@ async def test_create_returns_versioned_document_with_metadata() -> None:
 
 
 @pytest.mark.unit
-async def test_list_by_author_returns_metadata_newest_first() -> None:
+async def test_list_by_author_returns_metadata_newest_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     started_at = datetime(2026, 1, 1, tzinfo=UTC)
-    history = InMemoryDraftHistory(
-        clock=_Clock(
-            started_at,
-            started_at + timedelta(seconds=1),
-            started_at + timedelta(seconds=2),
-        )
+    _freeze(
+        monkeypatch,
+        started_at,
+        started_at + timedelta(seconds=1),
+        started_at + timedelta(seconds=2),
     )
+    history = InMemoryDraftHistory()
     older = await history.create(
         title="Older",
         author_id="author",
@@ -110,12 +123,15 @@ async def test_list_by_author_returns_metadata_newest_first() -> None:
 
 
 @pytest.mark.unit
-async def test_updated_at_changes_only_when_history_changes() -> None:
+async def test_updated_at_changes_only_when_history_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     started_at = datetime(2026, 1, 1, tzinfo=UTC)
     committed_at = started_at + timedelta(seconds=1)
     undone_at = started_at + timedelta(seconds=2)
     redone_at = started_at + timedelta(seconds=3)
-    history = InMemoryDraftHistory(clock=_Clock(started_at, committed_at, undone_at, redone_at))
+    _freeze(monkeypatch, started_at, committed_at, undone_at, redone_at)
+    history = InMemoryDraftHistory()
     created = await history.create(
         title="Draft",
         author_id="author",
@@ -143,3 +159,23 @@ async def test_updated_at_changes_only_when_history_changes() -> None:
     redone = await history.get(draft_id=created.meta.draft_id)
     assert redone is not None
     assert redone.meta.updated_at == redone_at
+
+
+@pytest.mark.unit
+async def test_delete_removes_only_selected_copy_and_its_history() -> None:
+    history = InMemoryDraftHistory()
+    first = await history.create(
+        title="First", author_id="author", ref_score_id="saved", document=_document()
+    )
+    second = await history.create(
+        title="Second", author_id="author", ref_score_id="saved", document=_document()
+    )
+    await history.commit(draft=first)
+    await history.delete(draft_id=first.draft_id)
+    await history.delete(draft_id=first.draft_id)
+    assert await history.get(draft_id=first.draft_id) is None
+    assert [meta.draft_id for meta in await history.list_by_author(author_id="author")] == [
+        second.draft_id
+    ]
+    with pytest.raises(DraftStoreNotFoundError):
+        await history.commit(draft=first)
