@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.material import NoteCarrier
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     CarrierMarks,
     SetCarrierMarksIntent,
@@ -30,6 +31,7 @@ class SetCarrierMarksCompiler:
         *,
         document: ScoreDocument,
         intent: SetCarrierMarksIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         if not intent.items:
             raise MutationRejectedError("A batch of marks names at least one carrier.")
@@ -39,7 +41,7 @@ class SetCarrierMarksCompiler:
             raise MutationRejectedError("A batch of marks names each carrier once.")
 
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=carrier_ids,
         )
 

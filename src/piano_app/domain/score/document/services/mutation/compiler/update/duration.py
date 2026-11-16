@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.material import Carrier, CarrierOwner
 from piano_app.domain.score.document.models.structural.rhythm import LeafRhythmicContainer
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     ChangeDurationIntent,
 )
@@ -32,9 +33,10 @@ class ChangeDurationCompiler:
         *,
         document: ScoreDocument,
         intent: ChangeDurationIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.carrier_id,),
         )
         carrier: Carrier = expect_entity(

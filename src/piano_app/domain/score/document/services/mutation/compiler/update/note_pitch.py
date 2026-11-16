@@ -6,6 +6,7 @@ from piano_app.domain.score.document.models.structural import Staff
 from piano_app.domain.score.document.services.contexts import ContextIndex
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
 from piano_app.domain.score.document.services.helpers import host_leaf_of
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     ChangePitchIntent,
     MoveNoteToStaffIntent,
@@ -35,9 +36,10 @@ class ChangePitchCompiler:
         *,
         document: ScoreDocument,
         intent: ChangePitchIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.note_id,),
         )
         note: Note = expect_entity(
@@ -64,9 +66,10 @@ class SetAccidentalCompiler:
         *,
         document: ScoreDocument,
         intent: SetAccidentalIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.note_id,),
         )
         note: Note = expect_entity(
@@ -94,9 +97,10 @@ class MoveNoteToStaffCompiler:
         *,
         document: ScoreDocument,
         intent: MoveNoteToStaffIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.note_id, intent.staff_id),
         )
         note: Note = expect_entity(
@@ -143,13 +147,15 @@ class ShiftStaffStepsCompiler:
     """Snapshot all selected targets before tie propagation can change a later note."""
 
     def compile(
-        self, *, document: ScoreDocument, intent: ShiftStaffStepsIntent
+        self, *, document: ScoreDocument, intent: ShiftStaffStepsIntent, entities: EntityIndex
     ) -> Sequence[MutationRequest]:
         if not intent.note_ids or intent.delta not in (-1, 1):
             raise MutationRejectedError("Select notes and shift by one staff step.")
         ids = tuple(dict.fromkeys(intent.note_ids))
-        entities = resolve_entities(document=document, entity_ids=ids)
-        notes = [expect_entity(entities_by_id=entities, entity_id=id, expected=Note) for id in ids]
+        entities_by_id = resolve_entities(entities=entities, entity_ids=ids)
+        notes = [
+            expect_entity(entities_by_id=entities_by_id, entity_id=id, expected=Note) for id in ids
+        ]
         delta = intent.delta
         if len(notes) == 1 and len(notes[0].note_carrier.notes) > 1:
             note = notes[0]
