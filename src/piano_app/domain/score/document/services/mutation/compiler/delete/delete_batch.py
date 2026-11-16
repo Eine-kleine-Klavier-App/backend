@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.context import ClefChange, OctaveTransposition
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import DeleteBatchIntent
 from piano_app.domain.score.document.services.mutation.compiler.steps import (
     refuse_initial_context,
@@ -36,13 +37,14 @@ class DeleteBatchCompiler:
         *,
         document: ScoreDocument,
         intent: DeleteBatchIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         unique_ids: tuple[str, ...] = tuple(dict.fromkeys(intent.entity_ids))
         if not unique_ids:
             raise MutationRejectedError("Delete batch must contain at least one entity id.")
 
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=unique_ids,
         )
 

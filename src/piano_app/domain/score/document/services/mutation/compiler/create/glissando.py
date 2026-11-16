@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.material import Note
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     GlissandoNotesIntent,
 )
@@ -23,9 +24,10 @@ class GlissandoNotesCompiler:
         *,
         document: ScoreDocument,
         intent: GlissandoNotesIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.start_note_id, intent.end_note_id),
         )
         start_note: Note = expect_entity(

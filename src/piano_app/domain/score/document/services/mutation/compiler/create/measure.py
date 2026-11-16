@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.structural import Measure
 from piano_app.domain.score.document.services.helpers import neighbour_signature
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     AppendMeasureIntent,
     InsertMeasureIntent,
@@ -33,6 +34,7 @@ class AppendMeasureCompiler:
         *,
         document: ScoreDocument,
         intent: AppendMeasureIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         return [
             CreateEmptyMeasureRequest(
@@ -54,9 +56,10 @@ class InsertMeasureCompiler:
         *,
         document: ScoreDocument,
         intent: InsertMeasureIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.before_measure_id,),
         )
         before: Measure = expect_entity(

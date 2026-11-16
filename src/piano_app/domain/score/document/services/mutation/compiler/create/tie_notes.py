@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.material import Note, NoteCarrier
 from piano_app.domain.score.document.models.relations import Tie
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import TieNotesIntent
 from piano_app.domain.score.document.services.mutation.compiler.steps import (
     expect_entity,
@@ -32,9 +33,10 @@ class TieNotesCompiler:
         *,
         document: ScoreDocument,
         intent: TieNotesIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.start_note_id, intent.end_note_id),
         )
         start_note: Note = expect_entity(

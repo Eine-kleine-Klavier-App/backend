@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.structural import Measure, Staff, Voice
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import InsertRestIntent
 from piano_app.domain.score.document.services.mutation.compiler.steps import (
     expect_entity,
@@ -25,9 +26,10 @@ class InsertRestCompiler:
         *,
         document: ScoreDocument,
         intent: InsertRestIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.voice_id, intent.staff_id, intent.measure_id),
         )
         voice: Voice = expect_entity(
