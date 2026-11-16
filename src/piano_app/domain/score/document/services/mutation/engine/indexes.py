@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from piano_app.domain.score.document.services.contexts import ContextIndex
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.pitch.score_pitch import ScorePitch
 
 
@@ -13,6 +14,7 @@ class Indexes:
     reads.
     """
 
+    entities: EntityIndex
     geometry: ScoreGeometry
     pitch: ScorePitch
     contexts: ContextIndex
