@@ -1,9 +1,11 @@
+from piano_app.domain.score.document.models import ScoreEntity
 from piano_app.domain.score.document.models.context import Context
 from piano_app.domain.score.document.models.material import Note
 from piano_app.domain.score.document.models.structural import Staff, TemporalAnchor
 from piano_app.domain.score.document.models.structural.rhythm import (
     GroupRhythmicContainer,
     LeafRhythmicContainer,
+    RhythmicContainer,
     RhythmicContainerParent,
 )
 
@@ -11,7 +13,7 @@ from piano_app.domain.score.document.models.structural.rhythm import (
 class Index:
     """Something derived from the model that has to learn of a change to stay right.
 
-    The eight events are what a change of the model can mean to an index; an index overrides
+    The ten events are what a change of the model can mean to an index; an index overrides
     the ones it answers for and leaves the rest. Each is delivered after the change, so a
     detached entity still holds the place it was detached from, and only marks what went
     stale: the next read rebuilds it.
@@ -29,7 +31,7 @@ class Index:
     def invalidate_group(self, *, group: GroupRhythmicContainer) -> None:
         """A group was created, deleted, resized or split."""
 
-    def invalidate_scope(self, *, scope: RhythmicContainerParent) -> None:
+    def invalidate_child(self, *, scope: RhythmicContainerParent, child: RhythmicContainer) -> None:
         """A child was attached to or detached from the scope."""
 
     def invalidate_staff(self, *, staff: Staff) -> None:
@@ -42,3 +44,9 @@ class Index:
     def invalidate_context(self, *, context: Context) -> None:
         """A context of any kind was created, removed, moved, had an end moved or, on voices,
         had its voices changed."""
+
+    def attach_entity(self, *, owner: object, entity: ScoreEntity) -> None:
+        """The owner took the entity as its own: put it in a list or a field that holds it."""
+
+    def detach_entity(self, *, owner: object, entity: ScoreEntity) -> None:
+        """The owner let the entity go: took it out of a list or a field that held it."""
