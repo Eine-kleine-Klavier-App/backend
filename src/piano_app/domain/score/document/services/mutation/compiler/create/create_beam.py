@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.material import Carrier
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import CreateBeamIntent
 from piano_app.domain.score.document.services.mutation.compiler.steps import (
     expect_entity,
@@ -22,11 +23,12 @@ class CreateBeamCompiler:
         *,
         document: ScoreDocument,
         intent: CreateBeamIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         # a repeated id would make the beam hold one carrier twice
         carrier_ids: tuple[str, ...] = tuple(dict.fromkeys(intent.carrier_ids))
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=carrier_ids,
         )
         carriers: tuple[Carrier, ...] = tuple(

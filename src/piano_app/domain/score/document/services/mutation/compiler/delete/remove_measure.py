@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.structural import Measure
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import RemoveMeasureIntent
 from piano_app.domain.score.document.services.mutation.compiler.steps import (
     expect_entity,
@@ -22,9 +23,10 @@ class RemoveMeasureCompiler:
         *,
         document: ScoreDocument,
         intent: RemoveMeasureIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.measure_id,),
         )
         measure: Measure = expect_entity(

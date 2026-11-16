@@ -11,6 +11,7 @@ from piano_app.domain.score.document.models.structural import (
 from piano_app.domain.score.document.services.contexts import ContextIndex
 from piano_app.domain.score.document.services.geometry import Point
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     CreateTupletWithNoteIntent,
     CreateTupletWithRestIntent,
@@ -41,9 +42,10 @@ class CreateTupletWithNoteCompiler:
         *,
         document: ScoreDocument,
         intent: CreateTupletWithNoteIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.voice_id, intent.staff_id, intent.measure_id),
         )
         voice: Voice = expect_entity(
@@ -112,9 +114,10 @@ class CreateTupletWithRestCompiler:
         *,
         document: ScoreDocument,
         intent: CreateTupletWithRestIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.voice_id, intent.staff_id, intent.measure_id),
         )
         voice: Voice = expect_entity(

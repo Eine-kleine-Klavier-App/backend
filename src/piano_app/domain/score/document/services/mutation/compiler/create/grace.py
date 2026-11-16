@@ -10,6 +10,7 @@ from piano_app.domain.score.document.models.structural.rhythm import (
 )
 from piano_app.domain.score.document.services.contexts import ContextIndex
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     AddGraceCarrierNoteIntent,
     AddGraceNoteIntent,
@@ -78,13 +79,14 @@ class AddGraceNoteCompiler:
         *,
         document: ScoreDocument,
         intent: AddGraceNoteIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entity_ids: tuple[str, ...] = (intent.host_carrier_id, intent.staff_id)
         if intent.after_carrier_id is not None:
             entity_ids = (*entity_ids, intent.after_carrier_id)
 
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=entity_ids,
         )
         host: Carrier = expect_entity(
@@ -154,9 +156,10 @@ class AddGraceCarrierNoteCompiler:
         *,
         document: ScoreDocument,
         intent: AddGraceCarrierNoteIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.carrier_id, intent.staff_id),
         )
         carrier: NoteCarrier = expect_entity(
@@ -201,9 +204,10 @@ class RemoveGraceNoteCompiler:
         *,
         document: ScoreDocument,
         intent: RemoveGraceNoteIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document, entity_ids=(intent.note_id,)
+            entities=entities, entity_ids=(intent.note_id,)
         )
         note: Note = expect_entity(
             entities_by_id=entities_by_id, entity_id=intent.note_id, expected=Note
@@ -227,9 +231,10 @@ class ChangeGraceTypeCompiler:
         *,
         document: ScoreDocument,
         intent: ChangeGraceTypeIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document, entity_ids=(intent.note_id,)
+            entities=entities, entity_ids=(intent.note_id,)
         )
         note: Note = expect_entity(
             entities_by_id=entities_by_id, entity_id=intent.note_id, expected=Note
@@ -249,9 +254,10 @@ class ChangeGraceValueCompiler:
         *,
         document: ScoreDocument,
         intent: ChangeGraceValueIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document, entity_ids=(intent.carrier_id,)
+            entities=entities, entity_ids=(intent.carrier_id,)
         )
         carrier: Carrier = expect_entity(
             entities_by_id=entities_by_id, entity_id=intent.carrier_id, expected=Carrier
