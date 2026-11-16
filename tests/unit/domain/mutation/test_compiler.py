@@ -12,6 +12,7 @@ from piano_app.domain.score.document.models.structural.rhythm import (
     LeafRhythmicContainer,
 )
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation import build_compiler
 from piano_app.domain.score.document.services.mutation.compiler import (
     DeleteBatchIntent,
@@ -120,7 +121,7 @@ class _ProbeCompiler:
         self.seen: list[_ProbeIntent] = []
 
     def compile(
-        self, *, document: ScoreDocument, intent: _ProbeIntent
+        self, *, document: ScoreDocument, intent: _ProbeIntent, entities: EntityIndex
     ) -> Sequence[MutationRequest]:
         self.seen.append(intent)
         return []
@@ -155,7 +156,7 @@ def test_resolution_reaches_entities_nested_deep_in_groups() -> None:
     deep: Note = leaf.carrier.notes[0]
 
     found: dict[str, ScoreEntity] = resolve_entities(
-        document=score.document,
+        entities=EntityIndex(document=score.document),
         entity_ids=[deep.id, triplet.id, score.voice.id],
     )
 
@@ -168,14 +169,16 @@ def test_resolution_refuses_naming_the_unknown_id() -> None:
     score: Score = build_score(measure_count=1)
 
     with pytest.raises(MutationRejectedError, match="ghost"):
-        resolve_entities(document=score.document, entity_ids=[score.voice.id, "ghost"])
+        resolve_entities(
+            entities=EntityIndex(document=score.document), entity_ids=[score.voice.id, "ghost"]
+        )
 
 
 @pytest.mark.unit
 def test_an_entity_of_the_wrong_kind_is_refused_by_name() -> None:
     score: Score = build_score(measure_count=1)
     found: dict[str, ScoreEntity] = resolve_entities(
-        document=score.document,
+        entities=EntityIndex(document=score.document),
         entity_ids=[score.voice.id],
     )
 

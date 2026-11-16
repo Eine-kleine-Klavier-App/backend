@@ -26,6 +26,10 @@ class MutationEditor:
     def apply(self, *, document: ScoreDocument, intents: Sequence[EditIntent]) -> MutationLog:
         with self._engine.transaction(document=document) as transaction:
             for intent in intents:
-                transaction.run(requests=self._compiler.compile(document=document, intent=intent))
+                transaction.run(
+                    requests=self._compiler.compile(
+                        document=document, intent=intent, entities=transaction.entities
+                    )
+                )
 
         return transaction.log

@@ -1,46 +1,25 @@
-import dataclasses
 from collections.abc import Sequence
 
-from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
+from piano_app.domain.score.document.models import ScoreEntity
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.instructions import MutationRejectedError
 
 
 def resolve_entities(
     *,
-    document: ScoreDocument,
+    entities: EntityIndex,
     entity_ids: Sequence[str],
 ) -> dict[str, ScoreEntity]:
     """The live entities behind the ids, keyed by id. An unknown id rejects the intent."""
-    ids: set[str] = set(entity_ids)
     found: dict[str, ScoreEntity] = {}
-    seen: set[str] = set()
-    stack: list[ScoreEntity] = []
+    for entity_id in entity_ids:
+        entity: ScoreEntity | None = entities.find(entity_id=entity_id)
+        if entity is not None:
+            found[entity_id] = entity
 
-    def schedule_children_of(parent: ScoreEntity | ScoreDocument) -> None:
-        for field in dataclasses.fields(parent):
-            for child_entity in _flatten(getattr(parent, field.name)):
-                if child_entity.id not in seen:
-                    seen.add(child_entity.id)
-                    stack.append(child_entity)
-
-    schedule_children_of(document)
-
-    while stack:
-        entity: ScoreEntity = stack.pop()
-
-        # register matching entities
-        if entity.id in ids:
-            found[entity.id] = entity
-
-            # tiny optimization here, stop if all ids were found
-            if len(found) == len(ids):
-                break
-
-        # keep searching deeper for children
-        schedule_children_of(entity)
-
-    if len(found) != len(ids):
-        raise MutationRejectedError(f"Could not resolve all ids: {ids - found.keys()}")
+    unknown: set[str] = set(entity_ids) - found.keys()
+    if unknown:
+        raise MutationRejectedError(f"Could not resolve all ids: {unknown}")
 
     return found
 
@@ -60,20 +39,3 @@ def expect_entity[E: ScoreEntity](
         )
 
     return entity
-
-
-def _flatten(value: object) -> list[ScoreEntity]:
-    """Flatten a field value to the entities it holds, recursing through the standard
-    containers (list/tuple/set/dict). A ``ScoreEntity`` is terminal.
-    """
-    entities: list[ScoreEntity] = []
-    if isinstance(value, ScoreEntity):
-        entities.append(value)
-    elif isinstance(value, list | tuple | set):
-        for item in value:
-            entities.extend(_flatten(item))
-    elif isinstance(value, dict):
-        for item in value.values():
-            entities.extend(_flatten(item))
-
-    return entities
