@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.structural import Measure
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     ChangeTimeSignatureIntent,
 )
@@ -25,9 +26,10 @@ class ChangeTimeSignatureCompiler:
         *,
         document: ScoreDocument,
         intent: ChangeTimeSignatureIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=intent.measure_ids,
         )
         measures: tuple[Measure, ...] = tuple(
