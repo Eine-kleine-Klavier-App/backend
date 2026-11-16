@@ -11,9 +11,11 @@ class _JournalEntry(Protocol):
 class ChangeListener(Protocol):
     """Told about each change right after the journal has recorded it."""
 
-    def on_set(self, target: object, field_name: str) -> None: ...
+    def on_set(self, target: object, field_name: str, previous: object) -> None:
+        """A field now holds a new value; ``previous`` is what it held."""
 
-    def on_list(self, owner: object, field_name: str, item: Any) -> None: ...
+    def on_list(self, owner: object, field_name: str, item: Any, added: bool) -> None:
+        """``item`` was put into the list (``added``) or taken out of it."""
 
 
 @dataclass(slots=True, kw_only=True)
@@ -98,7 +100,7 @@ class MutationLog:
         entry.apply()
         self._entries.append(entry)
         for listener in self._listeners:
-            listener.on_set(target, field_name)
+            listener.on_set(target, field_name, entry.previous_value)
 
     def list_append(self, owner: object, field_name: str, item: Any) -> None:
         target: list[Any] = getattr(owner, field_name)
@@ -111,7 +113,7 @@ class MutationLog:
         )
         entry.apply()
         self._entries.append(entry)
-        self._notify_list(owner=owner, field_name=field_name, item=item)
+        self._notify_list(owner=owner, field_name=field_name, item=item, added=True)
 
     def list_insert(self, owner: object, field_name: str, index: int, item: Any) -> None:
         target: list[Any] = getattr(owner, field_name)
@@ -124,7 +126,7 @@ class MutationLog:
         )
         entry.apply()
         self._entries.append(entry)
-        self._notify_list(owner=owner, field_name=field_name, item=item)
+        self._notify_list(owner=owner, field_name=field_name, item=item, added=True)
 
     def list_remove(self, owner: object, field_name: str, item: Any) -> None:
         target: list[Any] = getattr(owner, field_name)
@@ -138,7 +140,7 @@ class MutationLog:
         )
         entry.apply()
         self._entries.append(entry)
-        self._notify_list(owner=owner, field_name=field_name, item=item)
+        self._notify_list(owner=owner, field_name=field_name, item=item, added=False)
 
     def rollback(self) -> None:
         """Revert the journal (one gesture). Replay every entry's ``undo`` in reverse order.
@@ -154,6 +156,6 @@ class MutationLog:
         for entry in self._entries:
             entry.apply()
 
-    def _notify_list(self, *, owner: object, field_name: str, item: Any) -> None:
+    def _notify_list(self, *, owner: object, field_name: str, item: Any, added: bool) -> None:
         for listener in self._listeners:
-            listener.on_list(owner, field_name, item)
+            listener.on_list(owner, field_name, item, added)
