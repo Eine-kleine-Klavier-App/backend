@@ -6,7 +6,7 @@ from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.mutation_sink import MutationSink
 from piano_app.domain.score.document.services.contexts import ContextIndex
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
-from piano_app.domain.score.document.services.indexing import IndexLayer
+from piano_app.domain.score.document.services.indexing import EntityIndex, IndexLayer
 from piano_app.domain.score.document.services.mutation.instructions import (
     MutationAction,
     MutationRequest,
@@ -76,6 +76,7 @@ class MutationEngine:
         checkpoint_geometry_check: Callable[[ScoreGeometry, ScoreDocument], None] | None = None,
         checkpoint_pitch_check: Callable[[ScorePitch, ScoreGeometry, ScoreDocument], None]
         | None = None,
+        checkpoint_entities_check: Callable[[EntityIndex, ScoreDocument], None] | None = None,
     ) -> None:
         self._handler_registry: MutationHandlerRegistry = handler_registry
         self._analyzer_registry: MutationAnalyzerRegistry = analyzer_registry
@@ -89,6 +90,9 @@ class MutationEngine:
         self._checkpoint_pitch_check: (
             Callable[[ScorePitch, ScoreGeometry, ScoreDocument], None] | None
         ) = checkpoint_pitch_check
+        self._checkpoint_entities_check: Callable[[EntityIndex, ScoreDocument], None] | None = (
+            checkpoint_entities_check
+        )
 
     def process(
         self, *, document: ScoreDocument, requests: Sequence[MutationRequest]
@@ -99,9 +103,13 @@ class MutationEngine:
 
         return transaction.log
 
-    def transaction(self, *, document: ScoreDocument) -> MutationTransaction:
-        """A transaction over ``document``, to be used as a context manager."""
-        return MutationTransaction(engine=self, document=document)
+    def transaction(
+        self, *, document: ScoreDocument, entities: EntityIndex | None = None
+    ) -> MutationTransaction:
+        """A transaction over ``document``, to be used as a context manager. ``entities`` is
+        the index of the document's entities a caller has been reading before the transaction,
+        which the transaction goes on keeping right; without it the transaction makes one."""
+        return MutationTransaction(engine=self, document=document, entities=entities)
 
     def _run_pass(
         self,
@@ -182,6 +190,9 @@ class MutationEngine:
 
         if self._checkpoint_pitch_check is not None:
             self._checkpoint_pitch_check(indexes.pitch, indexes.geometry, document)
+
+        if self._checkpoint_entities_check is not None:
+            self._checkpoint_entities_check(indexes.entities, document)
 
     def _drain(
         self,
@@ -371,7 +382,13 @@ class MutationTransaction:
     rolls every pass back and re-raises; on success ``log`` journals all of them.
     """
 
-    def __init__(self, *, engine: MutationEngine, document: ScoreDocument) -> None:
+    def __init__(
+        self,
+        *,
+        engine: MutationEngine,
+        document: ScoreDocument,
+        entities: EntityIndex | None = None,
+    ) -> None:
         self._engine: MutationEngine = engine
         self._document: ScoreDocument = document
         # one for every pass: the index layer marks it as the journal records changes, so it
@@ -379,6 +396,7 @@ class MutationTransaction:
         geometry: ScoreGeometry = ScoreGeometry(document=document)
         contexts: ContextIndex = ContextIndex(document=document, geometry=geometry)
         self._indexes: Indexes = Indexes(
+            entities=entities if entities is not None else EntityIndex(document=document),
             geometry=geometry,
             pitch=ScorePitch(document=document, geometry=geometry, contexts=contexts),
             contexts=contexts,
@@ -386,7 +404,12 @@ class MutationTransaction:
         self._log: MutationLog = MutationLog()
         self._log.subscribe(
             IndexLayer(
-                indexes=(self._indexes.geometry, self._indexes.contexts, self._indexes.pitch)
+                indexes=(
+                    self._indexes.entities,
+                    self._indexes.geometry,
+                    self._indexes.contexts,
+                    self._indexes.pitch,
+                )
             )
         )
         self._entered: bool = False
@@ -395,6 +418,10 @@ class MutationTransaction:
     @property
     def log(self) -> MutationLog:
         return self._log
+
+    @property
+    def entities(self) -> EntityIndex:
+        return self._indexes.entities
 
     def __enter__(self) -> Self:
         if self._entered:

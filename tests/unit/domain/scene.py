@@ -1,4 +1,4 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import partial
@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 
-from piano_app.domain.score.document.models import ScoreDocument
+from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.context import Context, SpanContext
 from piano_app.domain.score.document.models.material import (
     Carrier,
@@ -49,6 +49,7 @@ from piano_app.domain.score.document.services.geometry import (
 )
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
 from piano_app.domain.score.document.services.helpers import iter_leaves
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation import (
     MutationEditor,
     build_compiler,
@@ -61,6 +62,9 @@ from piano_app.domain.score.document.services.mutation.compiler import (
 )
 from piano_app.domain.score.document.services.mutation.compiler import (
     intents as compiler_intents,
+)
+from piano_app.domain.score.document.services.mutation.compiler.intents.create import (
+    DEFAULT_BEAM_SHARE,
 )
 from piano_app.domain.score.document.services.mutation.engine import MutationEngine
 from piano_app.domain.score.document.services.mutation.engine.factory import (
@@ -535,13 +539,70 @@ def check_pitch_at_checkpoint(
                 ), (point.value, staff_step)
 
 
+def contained_ids(*, document: ScoreDocument) -> set[str]:
+    """The ids of everything the document contains, read the way a record is: a score is its
+    voices, staffs and measures, and a measure holds its anchors, which start the contexts and
+    jumps and hold the rhythmic containers, which hold the carriers, notes and relations."""
+    ids: set[str] = {entity.id for entity in (*document.voices, *document.staffs)}
+    carriers: list[Carrier | None] = []
+    for measure in document.measures:
+        ids.add(measure.id)
+        for anchor in measure.anchors:
+            ids.add(anchor.id)
+            ids.update(
+                entity.id
+                for entity in (
+                    *anchor.starting_contexts,
+                    *anchor.departing_jumps,
+                    *anchor.arriving_jumps,
+                    *anchor.containers,
+                )
+            )
+            for container in anchor.containers:
+                if not isinstance(container, LeafRhythmicContainer):
+                    continue
+
+                carriers.append(container.carrier)
+                for grace in (container.grace_before, container.grace_after):
+                    if grace is not None:
+                        ids.add(grace.id)
+                        for item in grace.grace_items:
+                            ids.add(item.id)
+                            carriers.append(item.carrier)
+
+    for carrier in carriers:
+        if carrier is None:
+            continue
+
+        ids.add(carrier.id)
+        ids.update(relation.id for relation in carrier.carrier_group_relations)
+        if isinstance(carrier, NoteCarrier):
+            for item in carrier.notes:
+                ids.add(item.id)
+                ids.update(relation.id for relation in item.relations)
+        elif isinstance(carrier, RestCarrier) and carrier.rest is not None:
+            ids.add(carrier.rest.id)
+
+    return ids
+
+
+def check_entities_at_checkpoint(entities: EntityIndex, document: ScoreDocument) -> None:
+    """An engine's ``checkpoint_entities_check``: at each check point of a pass the transaction's
+    entity index holds exactly what the document contains, each under its own id."""
+    held: Mapping[str, ScoreEntity] = entities.held()
+    contained: set[str] = contained_ids(document=document)
+    assert held.keys() == contained, (sorted(held.keys() ^ contained), len(held), len(contained))
+    assert all(entity.id == entity_id for entity_id, entity in held.items())
+
+
 def build_engine() -> MutationEngine:
-    """The production engine, checking its live geometry and pitch index after every action
-    and at each check point of a pass."""
+    """The production engine, checking its live geometry, pitch index and entity index after
+    every action and at each check point of a pass."""
     return production_build_engine(
         geometry_check=check_geometry_after_action,
         checkpoint_geometry_check=check_geometry_at_checkpoint,
         checkpoint_pitch_check=check_pitch_at_checkpoint,
+        checkpoint_entities_check=check_entities_at_checkpoint,
     )
 
 
@@ -604,6 +665,7 @@ def insert_note(
     rhythmic_value: RhythmicValue,
     dots: int = 0,
     step: int = NEW_STEP,
+    beam_share: Fraction = DEFAULT_BEAM_SHARE,
 ) -> MutationLog:
     return apply_intent(
         score=score,
@@ -615,6 +677,7 @@ def insert_note(
             written_value=value(rhythmic_value, dots),
             staff_step=step,
             accidental=Accidental.NATURAL,
+            beam_share=beam_share,
         ),
     )
 

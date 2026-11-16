@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from piano_app.domain.score.document.models import ScoreDocument
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.instructions import MutationRequest
 from piano_app.domain.shared.abstract import abstract
 
@@ -26,4 +27,6 @@ class IntentCompiler[I: EditIntent](Protocol):
     raise ``MutationRejectedError``.
     """
 
-    def compile(self, *, document: ScoreDocument, intent: I) -> Sequence[MutationRequest]: ...
+    def compile(
+        self, *, document: ScoreDocument, intent: I, entities: EntityIndex
+    ) -> Sequence[MutationRequest]: ...
