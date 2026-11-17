@@ -10,6 +10,7 @@ from piano_app.domain.score.document.models.context import (
 from piano_app.domain.score.document.models.structural import MEASURE_START, Measure, Staff, Voice
 from piano_app.domain.score.document.services.contexts import ContextIndex
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     CreateOctaveTranspositionIntent,
     CreateSlurIntent,
@@ -55,9 +56,10 @@ class SetKeySignatureCompiler:
         *,
         document: ScoreDocument,
         intent: SetKeySignatureIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.staff_id, intent.measure_id),
         )
 
@@ -87,9 +89,10 @@ class CreateSlurCompiler:
         *,
         document: ScoreDocument,
         intent: CreateSlurIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.start_measure_id, intent.end_measure_id, *intent.voice_ids),
         )
 
@@ -123,9 +126,10 @@ class CreateSustainHoldCompiler:
         *,
         document: ScoreDocument,
         intent: CreateSustainHoldIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.start_measure_id, intent.end_measure_id),
         )
 
@@ -156,9 +160,10 @@ class CreateOctaveTranspositionCompiler:
         *,
         document: ScoreDocument,
         intent: CreateOctaveTranspositionIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.staff_id, intent.start_measure_id, intent.end_measure_id),
         )
         staff: Staff = expect_entity(
@@ -201,9 +206,10 @@ class SetClefCompiler:
         *,
         document: ScoreDocument,
         intent: SetClefIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.staff_id, intent.measure_id),
         )
         staff: Staff = expect_entity(
@@ -247,9 +253,10 @@ class DeleteClefCompiler:
         *,
         document: ScoreDocument,
         intent: DeleteClefIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.clef_id, *intent.measure_ids),
         )
         clef: ClefChange = expect_entity(
@@ -303,9 +310,10 @@ class DeleteOctaveTranspositionCompiler:
         *,
         document: ScoreDocument,
         intent: DeleteOctaveTranspositionIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.octave_id,),
         )
         octave: OctaveTransposition = expect_entity(
@@ -331,9 +339,10 @@ class MoveContextStartCompiler:
         *,
         document: ScoreDocument,
         intent: MoveContextStartIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.context_id, intent.measure_id),
         )
         context: Context = expect_entity(
@@ -370,9 +379,10 @@ class MoveContextEndCompiler:
         *,
         document: ScoreDocument,
         intent: MoveContextEndIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.context_id, intent.measure_id),
         )
         context: SpanContext = expect_entity(
@@ -409,9 +419,10 @@ class OpenContextEndCompiler:
         *,
         document: ScoreDocument,
         intent: OpenContextEndIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.context_id,),
         )
         context: SpanContext = expect_entity(

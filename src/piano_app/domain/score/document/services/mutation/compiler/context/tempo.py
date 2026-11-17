@@ -12,6 +12,7 @@ from piano_app.domain.score.document.services.contexts import (
     global_position,
 )
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     CreateTempoTransitionIntent,
     SetTempoIntent,
@@ -41,9 +42,10 @@ class SetTempoCompiler:
         *,
         document: ScoreDocument,
         intent: SetTempoIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.measure_id,),
         )
         measure: Measure = expect_entity(
@@ -96,9 +98,10 @@ class CreateTempoTransitionCompiler:
         *,
         document: ScoreDocument,
         intent: CreateTempoTransitionIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.start_measure_id, intent.end_measure_id),
         )
         start_measure: Measure = expect_entity(
@@ -140,9 +143,10 @@ class SetTempoTransitionTargetCompiler:
         *,
         document: ScoreDocument,
         intent: SetTempoTransitionTargetIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.transition_id,),
         )
         transition: TempoTransition = expect_entity(

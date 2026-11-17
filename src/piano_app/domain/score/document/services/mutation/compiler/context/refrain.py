@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.context import Refrain
 from piano_app.domain.score.document.models.structural import Measure
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     CreateRefrainIntent,
     MoveRefrainEndIntent,
@@ -33,6 +34,7 @@ class CreateRefrainCompiler:
         *,
         document: ScoreDocument,
         intent: CreateRefrainIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         if (intent.end_measure_id is None) != (intent.end_position is None):
             raise MutationRejectedError("A refrain's end is a measure and a position, or neither.")
@@ -43,7 +45,7 @@ class CreateRefrainCompiler:
             else (intent.start_measure_id, intent.end_measure_id)
         )
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document, entity_ids=entity_ids
+            entities=entities, entity_ids=entity_ids
         )
         end_measure: Measure | None = (
             None
@@ -76,9 +78,10 @@ class SetRefrainTimesCompiler:
         *,
         document: ScoreDocument,
         intent: SetRefrainTimesIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document, entity_ids=(intent.refrain_id,)
+            entities=entities, entity_ids=(intent.refrain_id,)
         )
         refrain: Refrain = expect_entity(
             entities_by_id=entities_by_id, entity_id=intent.refrain_id, expected=Refrain
@@ -95,9 +98,10 @@ class MoveRefrainStartCompiler:
         *,
         document: ScoreDocument,
         intent: MoveRefrainStartIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document, entity_ids=(intent.refrain_id, intent.measure_id)
+            entities=entities, entity_ids=(intent.refrain_id, intent.measure_id)
         )
 
         return [
@@ -121,6 +125,7 @@ class MoveRefrainEndCompiler:
         *,
         document: ScoreDocument,
         intent: MoveRefrainEndIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         if (intent.measure_id is None) != (intent.position is None):
             raise MutationRejectedError("A refrain's end is a measure and a position, or neither.")
@@ -131,7 +136,7 @@ class MoveRefrainEndCompiler:
             else (intent.refrain_id, intent.measure_id)
         )
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document, entity_ids=entity_ids
+            entities=entities, entity_ids=entity_ids
         )
 
         return [
