@@ -10,6 +10,7 @@ from piano_app.domain.score.document.services.contexts import (
     global_position,
 )
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     CreateHairpinIntent,
     SetDynamicIntent,
@@ -51,9 +52,10 @@ class SetDynamicCompiler:
         *,
         document: ScoreDocument,
         intent: SetDynamicIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.measure_id, *intent.voice_ids),
         )
         measure: Measure = expect_entity(
@@ -85,9 +87,10 @@ class CreateHairpinCompiler:
         *,
         document: ScoreDocument,
         intent: CreateHairpinIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.start_measure_id, intent.end_measure_id, *intent.voice_ids),
         )
         start_measure: Measure = expect_entity(
@@ -136,9 +139,10 @@ class SetHairpinTargetCompiler:
         *,
         document: ScoreDocument,
         intent: SetHairpinTargetIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.hairpin_id,),
         )
         hairpin: Hairpin = expect_entity(

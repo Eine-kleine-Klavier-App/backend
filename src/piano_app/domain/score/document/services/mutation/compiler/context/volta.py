@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.context import Refrain, Volta
 from piano_app.domain.score.document.models.structural import Measure
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import (
     AddRefrainEndingIntent,
     AppendVoltaFragmentIntent,
@@ -45,6 +46,7 @@ class CreateVoltaCompiler:
         *,
         document: ScoreDocument,
         intent: CreateVoltaIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         for fragment in intent.fragments:
             if (fragment.end_measure_id is None) != (fragment.end_position is None):
@@ -59,7 +61,7 @@ class CreateVoltaCompiler:
             if fragment.end_measure_id is not None
         )
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document, entity_ids=tuple(entity_ids)
+            entities=entities, entity_ids=tuple(entity_ids)
         )
 
         def measure(*, measure_id: str) -> Measure:
@@ -93,13 +95,13 @@ class CreateVoltaCompiler:
 
 def _volta_and_measure(
     *,
-    document: ScoreDocument,
+    entities: EntityIndex,
     volta_id: str,
     measure_id: str | None,
 ) -> tuple[Volta, Measure | None]:
     entity_ids: tuple[str, ...] = (volta_id,) if measure_id is None else (volta_id, measure_id)
     entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-        document=document, entity_ids=entity_ids
+        entities=entities, entity_ids=entity_ids
     )
 
     return (
@@ -134,10 +136,11 @@ class MoveVoltaBoundaryCompiler:
         *,
         document: ScoreDocument,
         intent: MoveVoltaBoundaryIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         _refuse_half_place(measure_id=intent.measure_id, has_position=intent.position is not None)
         volta, measure = _volta_and_measure(
-            document=document, volta_id=intent.volta_id, measure_id=intent.measure_id
+            entities=entities, volta_id=intent.volta_id, measure_id=intent.measure_id
         )
 
         return [
@@ -158,9 +161,10 @@ class MoveVoltaStartCompiler:
         *,
         document: ScoreDocument,
         intent: MoveVoltaStartIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         volta, measure = _volta_and_measure(
-            document=document, volta_id=intent.volta_id, measure_id=intent.measure_id
+            entities=entities, volta_id=intent.volta_id, measure_id=intent.measure_id
         )
 
         return [
@@ -178,8 +182,9 @@ class SetVoltaFragmentPassesCompiler:
         *,
         document: ScoreDocument,
         intent: SetVoltaFragmentPassesIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
-        volta, _ = _volta_and_measure(document=document, volta_id=intent.volta_id, measure_id=None)
+        volta, _ = _volta_and_measure(entities=entities, volta_id=intent.volta_id, measure_id=None)
 
         return [
             SetVoltaFragmentPassesRequest(
@@ -198,8 +203,9 @@ class SetVoltaTimesCompiler:
         *,
         document: ScoreDocument,
         intent: SetVoltaTimesIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
-        volta, _ = _volta_and_measure(document=document, volta_id=intent.volta_id, measure_id=None)
+        volta, _ = _volta_and_measure(entities=entities, volta_id=intent.volta_id, measure_id=None)
 
         return [SetVoltaTimesRequest(target=volta, times=intent.times)]
 
@@ -212,10 +218,11 @@ class AppendVoltaFragmentCompiler:
         *,
         document: ScoreDocument,
         intent: AppendVoltaFragmentIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         _refuse_half_place(measure_id=intent.measure_id, has_position=intent.position is not None)
         volta, measure = _volta_and_measure(
-            document=document, volta_id=intent.volta_id, measure_id=intent.measure_id
+            entities=entities, volta_id=intent.volta_id, measure_id=intent.measure_id
         )
 
         return [AppendVoltaFragmentRequest(target=volta, measure=measure, position=intent.position)]
@@ -229,9 +236,10 @@ class SplitVoltaFragmentCompiler:
         *,
         document: ScoreDocument,
         intent: SplitVoltaFragmentIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         volta, measure = _volta_and_measure(
-            document=document, volta_id=intent.volta_id, measure_id=intent.measure_id
+            entities=entities, volta_id=intent.volta_id, measure_id=intent.measure_id
         )
 
         return [
@@ -251,6 +259,7 @@ class AddRefrainEndingCompiler:
         *,
         document: ScoreDocument,
         intent: AddRefrainEndingIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         _refuse_half_place(measure_id=intent.measure_id, has_position=intent.position is not None)
         entity_ids: tuple[str, ...] = (
@@ -259,7 +268,7 @@ class AddRefrainEndingCompiler:
             else (intent.refrain_id, intent.measure_id)
         )
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document, entity_ids=entity_ids
+            entities=entities, entity_ids=entity_ids
         )
         refrain: Refrain = expect_entity(
             entities_by_id=entities_by_id, entity_id=intent.refrain_id, expected=Refrain
