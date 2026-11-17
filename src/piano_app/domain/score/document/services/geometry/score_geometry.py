@@ -210,10 +210,10 @@ class ScoreGeometry(Index):
         leaf keeps its parent."""
         self._occupancy.invalidate_leaf(leaf=leaf)
 
-    def invalidate_scope(self, *, scope: RhythmicContainerParent) -> None:
+    def invalidate_child(self, *, scope: RhythmicContainerParent, child: RhythmicContainer) -> None:
         """A child was attached to or detached from the scope — delivered after the change.
-        Only the scope's own layout goes; what lies under a child is untouched."""
-        self._occupancy.invalidate_scope(scope=scope)
+        Only that child is read again; what lies under it is untouched."""
+        self._occupancy.invalidate_child(scope=scope, child=child)
 
     def invalidate_group(self, *, group: GroupRhythmicContainer) -> None:
         """A group was created, deleted, resized or split — delivered after the change:

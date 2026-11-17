@@ -1,5 +1,5 @@
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -31,6 +31,7 @@ from piano_app.domain.score.document.services.geometry import (
     Span,
 )
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.geometry.spaces import SpacesIndex
 
 from ..scene import geometry_differences, size, tell_geometry
 
@@ -343,7 +344,9 @@ def _split(
         second_written_size=second_written,
         second_occupied_size=second_occupied,
     )
-    courier.after(group, second)
+    courier.after(group)
+    # a group that did not exist before the edit can only be told after it
+    tell_geometry(geometry=courier.geometry, entity=second)
 
 
 def _place(*, geometry: ScoreGeometry, value: Fraction) -> tuple[Measure, Fraction]:
@@ -713,19 +716,90 @@ def test_a_single_span_reads_only_its_own_measure() -> None:
 
 
 @pytest.mark.unit
-def test_telling_about_one_leaf_heals_its_whole_scope() -> None:
-    """The index heals by scope: two leaves of the voice resized, one delivered, and the voice
-    reads as a fresh build."""
+def test_telling_about_one_leaf_heals_only_that_leaf() -> None:
+    """The index heals by child: two leaves of the voice resized, one delivered — the voice
+    reads right for it and still wrong for the other, until that one is delivered too."""
     scene: _Scene = _build_scene()
     geometry: ScoreGeometry = _warmed(scene=scene)
 
     scene.quarters[0].set_size(size=_EIGHTH)
     scene.halves[1].set_size(size=_QUARTER)
-    assert _is_stale(geometry=geometry, document=scene.document)
-
     tell_geometry(geometry=geometry, entity=scene.quarters[0])
 
     assert geometry.span_of(container=scene.quarters[0]).length == Fraction(1, 8)
+    assert _is_stale(geometry=geometry, document=scene.document)
+
+    tell_geometry(geometry=geometry, entity=scene.halves[1])
+
+    assert geometry_differences(geometry=geometry, document=scene.document) == []
+
+
+@pytest.mark.unit
+def test_an_edit_reads_the_reach_of_the_touched_child_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A voice of many children heals one resized leaf by reading that leaf's reach alone,
+    not the reach of every child again."""
+    scene: _Scene = _build_scene()
+    geometry: ScoreGeometry = _warmed(scene=scene)
+    reads: list[Measure] = []
+    original: Callable[..., Sequence[Measure]] = SpacesIndex.measures_from
+
+    def counting(self: SpacesIndex, *, measure: Measure, end: Fraction) -> Sequence[Measure]:
+        reads.append(measure)
+        return original(self, measure=measure, end=end)
+
+    monkeypatch.setattr(SpacesIndex, "measures_from", counting)
+
+    scene.halves[1].set_size(size=_QUARTER)
+    tell_geometry(geometry=geometry, entity=scene.halves[1])
+    geometry.contents_in(scope=scene.voice, measure=scene.measures[3])
+
+    assert reads == [scene.halves[1].start_anchor.measure]
+
+
+@pytest.mark.unit
+def test_a_leaf_inserted_between_two_others_is_listed_between_them() -> None:
+    scene: _Scene = _build_scene()
+    geometry: ScoreGeometry = _warmed(scene=scene)
+    measure: Measure = scene.measures[4]
+    anchor: TemporalAnchor = _add_anchor(
+        courier=_Courier(geometry=geometry, when="after"), measure=measure, at=Fraction(1, 4)
+    )
+
+    leaf: LeafRhythmicContainer = _add_leaf(
+        courier=_Courier(geometry=geometry, when="after"),
+        parent=scene.voice,
+        anchor=anchor,
+        leaf_size=_QUARTER,
+    )
+
+    listed: list[RhythmicContainer] = [
+        child for child, _ in geometry.contents_in(scope=scene.voice, measure=measure)
+    ]
+    assert leaf in listed
+    assert geometry_differences(geometry=geometry, document=scene.document) == []
+
+
+@pytest.mark.unit
+def test_a_child_taken_out_of_the_scope_is_listed_nowhere() -> None:
+    scene: _Scene = _build_scene()
+    geometry: ScoreGeometry = _warmed(scene=scene)
+    crossing: LeafRhythmicContainer = scene.halves[1]
+    reached: list[Measure] = [
+        measure
+        for measure in scene.measures
+        if crossing
+        in [child for child, _ in geometry.contents_in(scope=scene.voice, measure=measure)]
+    ]
+    assert len(reached) == 2
+
+    _delete(courier=_Courier(geometry=geometry, when="after"), container=crossing)
+
+    for measure in reached:
+        assert crossing not in [
+            child for child, _ in geometry.contents_in(scope=scene.voice, measure=measure)
+        ]
     assert geometry_differences(geometry=geometry, document=scene.document) == []
 
 

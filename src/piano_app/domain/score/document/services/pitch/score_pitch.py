@@ -210,10 +210,9 @@ class ScorePitch(Index):
             self._drop_signs(measure=owner.anchor.measure)
 
     def invalidate_measures(self) -> None:
-        """The measure chain or its lengths changed, shifting context coordinates."""
+        """The measure chain or its lengths changed, shifting context coordinates. The signs
+        stay: each is kept by its place inside its own measure, which no other measure moves."""
         self._staffs.clear()
-        self._signs.clear()
-        self._measure_of_anchor.clear()
 
     def _drop_signs(self, *, measure: Measure | None) -> None:
         cached: _MeasureSigns | None = None if measure is None else self._signs.pop(measure, None)
