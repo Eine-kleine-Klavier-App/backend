@@ -63,8 +63,18 @@ class Staff(ScoreEntity):
         if context in self._contexts:
             return
 
-        # ordered insertion
-        index: int = sum(1 for existing in self._contexts if existing.precedes(context))
+        # ordered insertion: the contexts are in order, so those before the new one are the first
+        # ones and its place is found by halving the list
+        low: int = 0
+        high: int = len(self._contexts)
+        while low < high:
+            middle: int = (low + high) // 2
+            if self._contexts[middle].precedes(context):
+                low = middle + 1
+            else:
+                high = middle
+
+        index: int = low
 
         sink.list_insert(self, "_contexts", index, context)
 
