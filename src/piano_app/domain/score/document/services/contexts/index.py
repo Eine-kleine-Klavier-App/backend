@@ -24,19 +24,30 @@ class _Entry:
     context: Context
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _Placed:
+    """Where a context's entry was put: the entry and the scopes whose lists hold it."""
+
+    entry: _Entry
+    scopes: tuple[Scope, ...]
+
+
 class ContextIndex(Index):
     """Which contexts hold where: every kind, keyed by its scope, answered as pieces.
 
     A point context governs from its position until the next of its kind in the same scope;
-    a span context from its start to its end. The entries of a kind are built when first read
-    and kept until a context of that kind, an anchor it sits on or a measure changes. Read
-    through the geometry it is given, on the global timeline.
+    a span context from its start to its end. The entries of a kind are built whole when first
+    read. After that a change marks only the contexts it touched, and the next read takes each
+    out of the scopes it was in and, if it is still held, puts it into the scopes it governs
+    now, by where it starts. Read through the geometry it is given, on the global timeline.
     """
 
     def __init__(self, *, document: ScoreDocument, geometry: ScoreGeometry) -> None:
         self._document: ScoreDocument = document
         self._geometry: ScoreGeometry = geometry
         self._by_kind: dict[type[Context], dict[Scope, list[_Entry]]] = {}
+        self._placed: dict[type[Context], dict[Context, _Placed]] = {}
+        self._dirty: dict[type[Context], set[Context]] = {}
 
     def piece_at[T: Context](
         self,
@@ -147,43 +158,111 @@ class ContextIndex(Index):
 
     def invalidate_measures(self) -> None:
         self._by_kind.clear()
+        self._placed.clear()
+        self._dirty.clear()
 
     def invalidate_anchor(self, *, anchor: TemporalAnchor) -> None:
+        # an anchor moving shifts the start of what begins on it and the end of what ends on it
         for context in (*anchor.starting_contexts, *anchor.ending_contexts):
-            self._by_kind.pop(type(context), None)
+            self.invalidate_context(context=context)
 
     def invalidate_context(self, *, context: Context) -> None:
-        self._by_kind.pop(type(context), None)
+        # a kind nobody has read has no entries to keep right
+        kind: type[Context] = type(context)
+        if kind in self._by_kind:
+            self._dirty.setdefault(kind, set()).add(context)
 
     def _entries(self, *, kind: type[Context], scope: Scope) -> list[_Entry]:
         """The entries of a kind in a scope, by where they start."""
         by_scope: dict[Scope, list[_Entry]] | None = self._by_kind.get(kind)
         if by_scope is None:
-            by_scope = {}
-            for measure in self._document.measures:
-                for anchor in measure.anchors:
-                    for context in anchor.starting_contexts:
-                        if type(context) is not kind:
-                            continue
-
-                        entry: _Entry = _Entry(
-                            start=self._geometry.point_of(anchor=context.start).value,
-                            end=(
-                                self._geometry.end_of(context=context).value
-                                if isinstance(context, SpanContext)
-                                else None
-                            ),
-                            context=context,
-                        )
-                        for governed in scopes_of(context=context):
-                            by_scope.setdefault(governed, []).append(entry)
-
-            for entries in by_scope.values():
-                entries.sort(key=lambda each: each.start)
-
-            self._by_kind[kind] = by_scope
+            by_scope = self._build(kind=kind)
+        elif kind in self._dirty:
+            self._heal(kind=kind, by_scope=by_scope)
 
         return by_scope.get(scope, [])
+
+    def _build(self, *, kind: type[Context]) -> dict[Scope, list[_Entry]]:
+        by_scope: dict[Scope, list[_Entry]] = {}
+        placed: dict[Context, _Placed] = {}
+        for measure in self._document.measures:
+            for anchor in measure.anchors:
+                for context in anchor.starting_contexts:
+                    if type(context) is not kind:
+                        continue
+
+                    placed[context] = _Placed(
+                        entry=self._entry_of(context=context),
+                        scopes=scopes_of(context=context),
+                    )
+                    for governed in placed[context].scopes:
+                        by_scope.setdefault(governed, []).append(placed[context].entry)
+
+        for entries in by_scope.values():
+            entries.sort(key=lambda each: each.start)
+
+        self._by_kind[kind] = by_scope
+        self._placed[kind] = placed
+
+        return by_scope
+
+    def _heal(self, *, kind: type[Context], by_scope: dict[Scope, list[_Entry]]) -> None:
+        placed: dict[Context, _Placed] = self._placed[kind]
+        dirty: set[Context] = self._dirty.pop(kind)
+
+        # a read that cannot answer leaves the entries half healed, so they go and are built
+        # again by the next read
+        try:
+            for context in dirty:
+                taken: _Placed | None = placed.pop(context, None)
+                if taken is not None:
+                    for governed in taken.scopes:
+                        by_scope[governed].remove(taken.entry)
+
+            for context in dirty:
+                if not self._is_held(context=context):
+                    continue
+
+                placed[context] = _Placed(
+                    entry=self._entry_of(context=context),
+                    scopes=scopes_of(context=context),
+                )
+                for governed in placed[context].scopes:
+                    entries: list[_Entry] = by_scope.setdefault(governed, [])
+                    entries.insert(
+                        bisect_right(
+                            entries, self._order_of(entry=placed[context].entry), key=self._order_of
+                        ),
+                        placed[context].entry,
+                    )
+        except Exception:
+            self._by_kind.pop(kind, None)
+            self._placed.pop(kind, None)
+            raise
+
+    def _entry_of(self, *, context: Context) -> _Entry:
+        return _Entry(
+            start=self._geometry.point_of(anchor=context.start).value,
+            end=(
+                self._geometry.end_of(context=context).value
+                if isinstance(context, SpanContext)
+                else None
+            ),
+            context=context,
+        )
+
+    @staticmethod
+    def _order_of(entry: _Entry) -> tuple[Fraction, int]:
+        """Where an entry stands among the others: by its start, and at one start in the order
+        its anchor holds its contexts — the order a build lists them in."""
+        return entry.start, entry.context.start.starting_contexts.index(entry.context)
+
+    @staticmethod
+    def _is_held(*, context: Context) -> bool:
+        """Whether the score still lists the context: on an anchor of a measure."""
+        anchor: TemporalAnchor = context.start
+
+        return context in anchor.starting_contexts and anchor in anchor.measure.anchors
 
     @staticmethod
     def _boundaries(*, entries: list[_Entry]) -> list[Fraction]:
