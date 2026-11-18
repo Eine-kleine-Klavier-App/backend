@@ -1,5 +1,5 @@
 from bisect import bisect_right
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -18,10 +18,10 @@ from .anchors import (
     build_anchors,
     build_segments,
 )
-from .dynamics import build_dynamics
+from .dynamics import Dynamics, build_dynamics
 from .expansion import expand_sounds
 from .loudness import PIANO_CURVE, DynamicCurve, velocities
-from .pedal import build_pedal
+from .pedal import PedalSpan, build_pedal
 from .played import PlayedNote
 from .route import RouteSegment, build_route
 from .sounds import Sound, build_rest_hosts, build_sounds
@@ -64,6 +64,79 @@ class PlaybackProjection:
     pedals: tuple[PlaybackPedal, ...] = ()
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Performance:
+    """The score played once from its start, with what each step of the playing found: the
+    playback from a place and the playback cut by measure both read it, so a score is played
+    once for either."""
+
+    geometry: ScoreGeometry
+    contexts: ContextIndex
+    route: list[RouteSegment]
+    sounds: list[Sound]
+    pitch: ScorePitch
+    dynamics: Dynamics
+    timeline: Timeline
+    pedal: list[PedalSpan]
+    timed: list[TimedNote]
+    strengths: list[int]
+    anchors: list[PlayedAnchor]
+    segments: list[TimelineSegment]
+
+
+def refuse_unplayable(*, played: Sequence[PlayedNote]) -> None:
+    """Refuse a note that would sound outside MIDI 0..127, naming it."""
+    for sound in played:
+        if not 0 <= sound.pitch <= 127:
+            raise ValueError(
+                f"The note {sound.source.id!r} sounds at {sound.pitch}, outside MIDI 0..127."
+            )
+
+
+def perform(*, document: ScoreDocument, curve: DynamicCurve = PIANO_CURVE) -> Performance:
+    """The score played from its start in the order its repeats give. A note that would sound
+    outside MIDI 0..127 is refused. The document is only read."""
+    geometry: ScoreGeometry = ScoreGeometry(document=document)
+    contexts: ContextIndex = ContextIndex(document=document, geometry=geometry)
+    route: list[RouteSegment] = build_route(geometry=geometry, contexts=contexts)
+    sounds: list[Sound] = build_sounds(document=document, geometry=geometry, route=route)
+    pitch: ScorePitch = ScorePitch(document=document, geometry=geometry, contexts=contexts)
+    played: list[PlayedNote] = expand_sounds(
+        sounds=sounds,
+        document=document,
+        geometry=geometry,
+        pitch=pitch,
+        rests=build_rest_hosts(document=document, geometry=geometry, route=route),
+    )
+    refuse_unplayable(played=played)
+
+    timeline: Timeline = build_timeline(route=route, geometry=geometry, contexts=contexts)
+    pedal: list[PedalSpan] = build_pedal(route=route, geometry=geometry, contexts=contexts)
+    dynamics: Dynamics = build_dynamics(
+        document=document,
+        route=route,
+        geometry=geometry,
+        contexts=contexts,
+    )
+
+    return Performance(
+        geometry=geometry,
+        contexts=contexts,
+        route=route,
+        sounds=sounds,
+        pitch=pitch,
+        dynamics=dynamics,
+        timeline=timeline,
+        pedal=pedal,
+        timed=time_notes(notes=played, timeline=timeline, pedal=pedal),
+        strengths=velocities(notes=played, dynamics=dynamics, curve=curve),
+        anchors=build_anchors(document=document, geometry=geometry, route=route, timeline=timeline),
+        segments=build_segments(
+            document=document, geometry=geometry, route=route, timeline=timeline
+        ),
+    )
+
+
 def build_projection(
     *,
     document: ScoreDocument,
@@ -78,45 +151,19 @@ def build_projection(
     left of its length. The end of the score is a start with nothing to play; a position
     outside the score, or one that is never played, is refused. The document is only read.
     """
-    geometry: ScoreGeometry = ScoreGeometry(document=document)
-    contexts: ContextIndex = ContextIndex(document=document, geometry=geometry)
-    route: list[RouteSegment] = build_route(geometry=geometry, contexts=contexts)
-    played: list[PlayedNote] = expand_sounds(
-        sounds=build_sounds(document=document, geometry=geometry, route=route),
-        document=document,
-        geometry=geometry,
-        pitch=ScorePitch(document=document, geometry=geometry, contexts=contexts),
-        rests=build_rest_hosts(document=document, geometry=geometry, route=route),
-    )
-    for sound in played:
-        if not 0 <= sound.pitch <= 127:
-            raise ValueError(
-                f"The note {sound.source.id!r} sounds at {sound.pitch}, outside MIDI 0..127."
-            )
+    return project_from(performance=perform(document=document, curve=curve), start=start)
 
-    timeline: Timeline = build_timeline(route=route, geometry=geometry, contexts=contexts)
-    pedal = build_pedal(route=route, geometry=geometry, contexts=contexts)
-    timed: list[TimedNote] = time_notes(
-        notes=played,
-        timeline=timeline,
-        pedal=pedal,
-    )
-    strengths: list[int] = velocities(
-        notes=played,
-        dynamics=build_dynamics(
-            document=document,
-            route=route,
-            geometry=geometry,
-            contexts=contexts,
-        ),
-        curve=curve,
-    )
-    anchors: list[PlayedAnchor] = build_anchors(
-        document=document, geometry=geometry, route=route, timeline=timeline
-    )
-    segments: list[TimelineSegment] = build_segments(
-        document=document, geometry=geometry, route=route, timeline=timeline
-    )
+
+def project_from(*, performance: Performance, start: Fraction) -> PlaybackProjection:
+    """The playback of a performed score from ``start``, as ``build_projection`` tells it."""
+    geometry: ScoreGeometry = performance.geometry
+    route: list[RouteSegment] = performance.route
+    timeline: Timeline = performance.timeline
+    pedal: list[PedalSpan] = performance.pedal
+    timed: list[TimedNote] = performance.timed
+    strengths: list[int] = performance.strengths
+    anchors: list[PlayedAnchor] = performance.anchors
+    segments: list[TimelineSegment] = performance.segments
 
     if not 0 <= start <= geometry.root.extent:
         raise ValueError("The start lies outside the score.")

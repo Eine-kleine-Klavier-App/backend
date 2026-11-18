@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -59,6 +59,7 @@ def build_sounds(
     document: ScoreDocument,
     geometry: ScoreGeometry,
     route: Sequence[RouteSegment],
+    leaf_ids: Collection[str] | None = None,
 ) -> list[Sound]:
     """The sounds of the metric notes of a score, in the order they are played.
 
@@ -66,7 +67,8 @@ def build_sounds(
     each pass, and each pass is read by itself. A leaf belongs to the stretch it starts in and
     is cut at the end of it. A note continues the sound of the note tied to it only if that
     note was played right before it in the same stretch; after a jump it sounds again. Rests
-    and grace notes make no sound here.
+    and grace notes make no sound here. ``leaf_ids`` reads only those leaves: the leaves of
+    whole tied chains give the sounds of those chains as the whole score does.
     """
     sounds: list[Sound] = []
     offset: Fraction = Fraction(0)
@@ -81,6 +83,7 @@ def build_sounds(
                 offset=offset,
                 sounds=sounds,
                 open_chains=open_chains,
+                leaf_ids=leaf_ids,
             )
 
         offset += segment.end - segment.start
@@ -98,9 +101,13 @@ def _read_voice(
     offset: Fraction,
     sounds: list[Sound],
     open_chains: dict[Note, int],
+    leaf_ids: Collection[str] | None,
 ) -> None:
     leaf: LeafRhythmicContainer
     for leaf in iter_leaves(voice):
+        if leaf_ids is not None and leaf.id not in leaf_ids:
+            continue
+
         carrier: Carrier | None = leaf.carrier
         if not isinstance(carrier, NoteCarrier):
             continue
@@ -143,9 +150,11 @@ def build_rest_hosts(
     document: ScoreDocument,
     geometry: ScoreGeometry,
     route: Sequence[RouteSegment],
+    measure_ids: Collection[str] | None = None,
 ) -> list[RestHost]:
     """The rests that hold grace notes, in the order they are played, read stretch by stretch
-    like the sounds are: a rest in a repeated part is a host once for each pass."""
+    like the sounds are: a rest in a repeated part is a host once for each pass. ``measure_ids``
+    reads only the rests of those measures."""
     hosts: list[RestHost] = []
     offset: Fraction = Fraction(0)
     for segment in route:
@@ -153,6 +162,9 @@ def build_rest_hosts(
             leaf: LeafRhythmicContainer
             for leaf in iter_leaves(voice):
                 if not isinstance(leaf.carrier, RestCarrier):
+                    continue
+
+                if measure_ids is not None and leaf.anchor.measure.id not in measure_ids:
                     continue
 
                 if leaf.grace_before is None and leaf.grace_after is None:

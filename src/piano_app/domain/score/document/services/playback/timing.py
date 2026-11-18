@@ -1,3 +1,4 @@
+from bisect import bisect_left
 from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
@@ -29,13 +30,16 @@ def time_notes(
     pedal: Sequence[PedalSpan],
 ) -> list[TimedNote]:
     """The notes in time. A note whose end falls inside a stretch of pedal keeps sounding until
-    the pedal goes up; one that ends as the pedal goes down, or as it goes up, does not."""
+    the pedal goes up; one that ends as the pedal goes down, or as it goes up, does not. The
+    stretches lie in order and do not overlap, so the one an end falls into is the last that
+    begins before it."""
+    starts: list[Fraction] = [span.start for span in pedal]
     timed: list[TimedNote] = []
     for played in notes:
         end: Fraction = played.end
-        for span in pedal:
-            if span.start < end < span.end:
-                end = span.end
+        index: int = bisect_left(starts, end) - 1
+        if index >= 0 and end < pedal[index].end:
+            end = pedal[index].end
 
         timed.append(
             TimedNote(
