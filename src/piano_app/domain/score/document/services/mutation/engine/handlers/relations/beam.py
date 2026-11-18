@@ -1,6 +1,7 @@
 from piano_app.domain.score.document.models.mutation_sink import MutationSink
 from piano_app.domain.score.document.models.relations import Beam
 from piano_app.domain.score.document.services.mutation.instructions.actions.relations import (
+    AddBeamMemberAction,
     CreateBeamAction,
     UpdateBeamMembersAction,
 )
@@ -16,6 +17,19 @@ class UpdateBeamMembersHandler:
         sink: MutationSink,
     ) -> None:
         action.target.narrow_to(carriers=action.carriers, sink=sink)
+        return None
+
+
+class AddBeamMemberHandler:
+    """Takes a carrier into a beam, right after one of its members."""
+
+    def handle(
+        self,
+        *,
+        action: AddBeamMemberAction,
+        sink: MutationSink,
+    ) -> None:
+        action.target.add_after(carrier=action.carrier, after=action.after, sink=sink)
         return None
 
 

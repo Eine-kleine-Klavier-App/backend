@@ -7,6 +7,7 @@ from piano_app.domain.score.document.services.helpers import find_beams, is_touc
 from piano_app.domain.score.document.services.mutation.engine.typing import MutationAnalysis
 from piano_app.domain.score.document.services.mutation.instructions import MutationRejectedError
 from piano_app.domain.score.document.services.mutation.instructions.actions.relations import (
+    AddBeamMemberAction,
     CreateBeamAction,
     UpdateBeamMembersAction,
 )
@@ -14,6 +15,7 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.del
     DeleteRequest,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.relations import (
+    AddBeamMemberRequest,
     CreateBeamRequest,
     SplitBeamRequest,
     UpdateBeamMembersRequest,
@@ -101,6 +103,41 @@ class UpdateBeamMembersAnalyzer:
         geometry: ScoreGeometry,
     ) -> MutationAnalysis:
         yield UpdateBeamMembersAction(target=request.target, carriers=request.carriers)
+
+
+class AddBeamMemberAnalyzer:
+    """Takes a carrier into a beam right after one of its members, by the rules a beam is
+    created by: the carrier is no quarter or longer, in no beam yet, and touches the member it
+    follows. A carrier that breaks them is refused rather than repaired."""
+
+    def analyze(
+        self,
+        *,
+        request: AddBeamMemberRequest,
+        geometry: ScoreGeometry,
+    ) -> MutationAnalysis:
+        if find_beams(carriers=[request.carrier]):
+            raise MutationRejectedError("An element is already part of another beam.")
+
+        leaves: list[LeafRhythmicContainer] = []
+        for carrier in (request.after, request.carrier):
+            owner: CarrierOwner = carrier.owner
+            if not isinstance(owner, LeafRhythmicContainer):
+                raise MutationRejectedError("Beams involving grace notes are not yet supported.")
+
+            leaves.append(owner)
+
+        if _is_too_long(leaf=leaves[1]):
+            raise MutationRejectedError("An element of a quarter or longer cannot be beamed.")
+
+        if _is_separated(geometry=geometry, first=leaves[0], second=leaves[1]):
+            raise MutationRejectedError(
+                "Beamed elements must touch one after another in one voice."
+            )
+
+        yield AddBeamMemberAction(
+            target=request.target, carrier=request.carrier, after=request.after
+        )
 
 
 class CreateBeamAnalyzer:

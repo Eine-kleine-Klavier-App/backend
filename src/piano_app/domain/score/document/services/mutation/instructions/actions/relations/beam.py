@@ -16,6 +16,14 @@ class UpdateBeamMembersAction(UpdateMutationAction[Beam]):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class AddBeamMemberAction(UpdateMutationAction[Beam]):
+    """Takes a carrier into a beam, right after one of its members."""
+
+    carrier: Carrier
+    after: Carrier
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CreateBeamAction(CreateMutationAction[Beam]):
     """Creates a beam over carriers."""
 

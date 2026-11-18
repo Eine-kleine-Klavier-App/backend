@@ -1,4 +1,5 @@
 from .beam import (
+    AddBeamMemberAnalyzer,
     CreateBeamAnalyzer,
     SplitBeamAnalyzer,
     UpdateBeamMembersAnalyzer,
@@ -9,6 +10,7 @@ from .relation import UpdateRelationStartAnalyzer
 from .tie import CreateTieAnalyzer
 
 __all__ = (
+    "AddBeamMemberAnalyzer",
     "CheckRelationAnalyzer",
     "CreateBeamAnalyzer",
     "CreateGlissandoAnalyzer",

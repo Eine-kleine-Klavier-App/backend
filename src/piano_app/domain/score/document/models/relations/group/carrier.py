@@ -107,6 +107,24 @@ class Beam(CarrierGroupRelation):
             carrier.remove_carrier_group_relation(relation=self, sink=sink)
             sink.list_remove(self, "_members", carrier)
 
+    def add_after(
+        self,
+        *,
+        carrier: Carrier,
+        after: Carrier,
+        sink: MutationSink = DIRECT_SINK,
+    ) -> None:
+        """Take ``carrier`` into the beam, right after its member ``after``."""
+        if after not in self._members:
+            raise ValueError("The carrier to follow is not a member of this beam.")
+
+        if carrier in self._members:
+            raise ValueError("The carrier is already a member of this beam.")
+
+        self._validate_available_carrier(carrier=carrier)
+        sink.list_insert(self, "_members", self._members.index(after) + 1, carrier)
+        carrier.add_carrier_group_relation(relation=self, sink=sink)
+
     def can_remove_carrier(self, *, carrier: Carrier) -> bool:
         if carrier not in self._members:
             raise ValueError("Carrier is not a member of this beam.")
