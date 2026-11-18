@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 import pytest
+from tests.fixtures.records import as_stored
 
 from piano_app.adapters.outbound.shared.codec import ScoreDocumentCodec
 from piano_app.domain.score.document.models import ScoreDocument
@@ -117,6 +118,13 @@ def test_a_glissando_survives_a_round_trip_with_its_type() -> None:
     assert _relation_layout(document=decoded) == _relation_layout(document=score.document)
 
 
+def _relation_kinds(*, record: dict[str, Any]) -> list[str]:
+    """The kinds of a record's relations, in the order the record lists them."""
+    return [
+        record["tables"]["relations"][relation_id]["kind"] for relation_id in record["relation_ids"]
+    ]
+
+
 @pytest.mark.unit
 def test_glissandos_mixed_with_ties_and_beams_round_trip_canonically() -> None:
     codec: ScoreDocumentCodec = ScoreDocumentCodec()
@@ -139,7 +147,10 @@ def test_glissandos_mixed_with_ties_and_beams_round_trip_canonically() -> None:
     decoded: ScoreDocument = codec.deserialize(encoded)
     re_encoded: dict[str, Any] = codec.serialize(decoded)
 
-    assert [row["kind"] for row in encoded["relations"]] == [
+    assert [
+        encoded["tables"]["relations"][relation_id]["kind"]
+        for relation_id in encoded["relation_ids"]
+    ] == [
         "beam",
         "tie",
         "glissando",
@@ -151,16 +162,20 @@ def test_glissandos_mixed_with_ties_and_beams_round_trip_canonically() -> None:
 
 
 @pytest.mark.unit
-def test_a_record_holding_only_ties_and_beams_still_loads() -> None:
+def test_a_record_whose_keys_a_store_reordered_reads_back_the_same() -> None:
     codec: ScoreDocumentCodec = ScoreDocumentCodec()
     score: Score = _score_with_chords()
     carriers: list[NoteCarrier] = _carriers(document=score.document)
     Tie.create(start_note=carriers[0].notes[0], end_note=carriers[1].notes[0])
+    Glissando.create(
+        start_note=carriers[0].notes[1],
+        end_note=carriers[1].notes[1],
+        glissando_type=GlissandoType.WAVY,
+    )
     Beam.create(carriers=[carriers[2], carriers[3]])
-    record: dict[str, Any] = json.loads(_bytes(data=codec.serialize(score.document)))
-    assert [row["kind"] for row in record["relations"]] == ["tie", "beam"]
+    record: dict[str, Any] = codec.serialize(score.document)
 
-    decoded: ScoreDocument = codec.deserialize(record)
+    decoded: ScoreDocument = codec.deserialize(as_stored(record))
 
+    assert codec.serialize(decoded) == record
     assert _relation_layout(document=decoded) == _relation_layout(document=score.document)
-    assert _bytes(data=codec.serialize(decoded)) == _bytes(data=record)

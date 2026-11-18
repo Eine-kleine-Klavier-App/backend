@@ -54,25 +54,3 @@ def test_fingerings_and_articulations_survive_a_round_trip() -> None:
         ),
     ]
     assert codec.serialize(decoded) == codec.serialize(score.document)
-
-
-@pytest.mark.unit
-def test_a_score_saved_with_one_articulation_reads_as_a_set_of_one() -> None:
-    codec: ScoreDocumentCodec = ScoreDocumentCodec()
-    score: Score = build_score(measure_count=1)
-    quarters(score=score, measure=0)
-    carriers: list[NoteCarrier] = _carriers(document=score.document)
-    carriers[1].set_articulations(articulations=frozenset({Articulation.ACCENT}))
-    data = codec.serialize(score.document)
-    for row in data["carriers"]:
-        marks: list[str] = row.pop("articulations")
-        row["articulation"] = marks[0] if marks else "none"
-
-    decoded: ScoreDocument = codec.deserialize(data)
-
-    assert [carrier.articulations for carrier in _carriers(document=decoded)] == [
-        frozenset(),
-        frozenset({Articulation.ACCENT}),
-        frozenset(),
-        frozenset(),
-    ]

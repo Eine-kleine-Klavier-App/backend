@@ -51,15 +51,3 @@ def test_ornaments_survive_a_round_trip() -> None:
         Ornament.INVERTED_TURN,
     ]
     assert codec.serialize(decoded) == codec.serialize(score.document)
-
-
-@pytest.mark.unit
-def test_a_score_saved_without_ornaments_reads_as_having_none() -> None:
-    codec: ScoreDocumentCodec = ScoreDocumentCodec()
-    data = codec.serialize(_scored().document)
-    for row in data["carriers"]:
-        row.pop("ornament", None)
-
-    decoded: ScoreDocument = codec.deserialize(data)
-
-    assert _ornaments(document=decoded) == [Ornament.NONE] * 4

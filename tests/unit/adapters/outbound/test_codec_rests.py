@@ -21,8 +21,8 @@ def test_notes_and_rests_survive_a_round_trip() -> None:
     serialized = codec.serialize(score.document)
     decoded: ScoreDocument = codec.deserialize(serialized)
 
-    rests = [row for row in serialized["musical_items"] if row["kind"] == "rest"]
-    notes = [row for row in serialized["musical_items"] if row["kind"] == "note"]
+    rests = [row for row in serialized["tables"]["musical_items"].values() if row["kind"] == "rest"]
+    notes = [row for row in serialized["tables"]["musical_items"].values() if row["kind"] == "note"]
     assert rests and all("staff_step" not in row for row in rests)
     assert [row["staff_step"] for row in notes] == [5]
     assert codec.serialize(decoded) == serialized
