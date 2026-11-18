@@ -1,7 +1,7 @@
-from collections.abc import Sequence
 from fractions import Fraction
 from typing import Any
 
+from piano_app.application.ports.score import DocumentRecord
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.context import (
     ClefChange,
@@ -76,18 +76,6 @@ from piano_app.domain.score.document.models.structural.rhythm import (
     RhythmicContainerParent,
 )
 
-type SerializedScoreDocument = dict[str, Any]
-
-# a draft written before the tempo, key signature and hairpin records changed is not migrated
-_OLD_FORMAT: str = (
-    "The saved draft uses an older format of tempo, key signature or hairpin records."
-)
-
-
-# what the numbers of the presentation stand for: ratios (factors of the automatic size,
-# fractions of a frame), not distances
-_PRESENTATION_UNITS: str = "ratio"
-
 
 class _Serializer:
     def __init__(self, *, document: ScoreDocument) -> None:
@@ -133,56 +121,48 @@ class _Serializer:
 
                     leaf: LeafRhythmicContainer = container
 
-                    grace_before: GraceGroup | None = leaf.grace_before
-                    if grace_before is not None:
-                        self._add(into=self._grace_groups, entity=grace_before)
+                    for grace_group in (leaf.grace_before, leaf.grace_after):
+                        if grace_group is None:
+                            continue
 
-                        grace_before_items: Sequence[GraceItem] = grace_before.grace_items
-                        if not grace_before_items:
+                        self._add(into=self._grace_groups, entity=grace_group)
+                        if not grace_group.grace_items:
                             raise ValueError("Grace group must have at least one grace item.")
 
-                        for grace_item in grace_before_items:
+                        for grace_item in grace_group.grace_items:
                             self._add(into=self._graces, entity=grace_item)
+                            self._collect_carrier(carrier=grace_item.carrier)
 
-                    grace_after: GraceGroup | None = leaf.grace_after
-                    if grace_after is not None:
-                        self._add(into=self._grace_groups, entity=grace_after)
+                    self._collect_carrier(carrier=leaf.carrier)
 
-                        grace_after_items: Sequence[GraceItem] = grace_after.grace_items
-                        if not grace_after_items:
-                            raise ValueError("Grace group must have at least one grace item.")
+    def _collect_carrier(self, *, carrier: Carrier | None) -> None:
+        """A carrier of a leaf or of a grace item, with what it holds and the relations it is in."""
+        if carrier is None:
+            raise ValueError("A leaf or a grace item must have a carrier.")
 
-                        for grace_item in grace_after_items:
-                            self._add(into=self._graces, entity=grace_item)
+        self._add(into=self._carriers, entity=carrier)
+        for carrier_relation in carrier.carrier_group_relations:
+            self._add(into=self._relations, entity=carrier_relation)
 
-                    carrier: Carrier | None = leaf.carrier
-                    if carrier is None:
-                        raise ValueError("Leaf must have a carrier.")
+        if isinstance(carrier, NoteCarrier):
+            if not carrier.notes:
+                raise ValueError("Note carrier must have at least one note.")
 
-                    self._add(into=self._carriers, entity=carrier)
-                    for carrier_relation in carrier.carrier_group_relations:
-                        self._add(into=self._relations, entity=carrier_relation)
+            for note in carrier.notes:
+                self._add(into=self._items, entity=note)
+                for note_relation in note.relations:
+                    self._add(into=self._relations, entity=note_relation)
+        elif isinstance(carrier, RestCarrier):
+            if carrier.rest is None:
+                raise ValueError("Rest carrier must have a rest.")
 
-                    if isinstance(carrier, NoteCarrier):
-                        if not carrier.notes:
-                            raise ValueError("Note carrier must have at least one note.")
-
-                        for note in carrier.notes:
-                            self._add(into=self._items, entity=note)
-                            for note_relation in note.relations:
-                                self._add(into=self._relations, entity=note_relation)
-                    elif isinstance(carrier, RestCarrier):
-                        if carrier.rest is None:
-                            raise ValueError("Rest carrier must have a rest.")
-
-                        self._add(into=self._items, entity=carrier.rest)
-                    else:
-                        raise TypeError(f"Unsupported carrier type: {type(carrier).__name__}.")
+            self._add(into=self._items, entity=carrier.rest)
+        else:
+            raise TypeError(f"Unsupported carrier type: {type(carrier).__name__}.")
 
     def _presentation_json(self) -> dict[str, object]:
         presentation = self._document.presentation
         return {
-            "units": _PRESENTATION_UNITS,
             "vertical": [
                 {
                     "entity_id": target.entity_id,
@@ -227,59 +207,65 @@ class _Serializer:
             ],
         }
 
-    def serialize(self) -> dict[str, Any]:
+    def serialize(self) -> DocumentRecord:
+        # Rows are keyed by id. What has an order the model keeps (the notes of a chord, the
+        # contexts that start at an anchor, the items of a grace group, the measures …) is
+        # written as the owner's list of ids, so the order never depends on how a store keeps
+        # an object's keys.
         return {
             "music_revision": self._document.music_revision,
             "presentation": self._presentation_json(),
-            "voices": [self._serialize_voice(voice=voice) for voice in self._voices],
-            "staffs": [self._serialize_staff(staff=staff) for staff in self._staffs],
-            "measures": [self._serialize_measure(measure=measure) for measure in self._measures],
-            "anchors": [
-                self._serialize_temporal_anchor(anchor=anchor) for anchor in self._anchors.values()
-            ],
-            "rhythmic": [
-                self._serialize_rhythmic_container(container=container)
-                for container in self._containers.values()
-            ],
-            "grace_groups": [
-                self._serialize_grace_group(group=group) for group in self._grace_groups.values()
-            ],
-            "grace_items": [
-                self._serialize_grace_item(item=item) for item in self._graces.values()
-            ],
-            "carriers": [
-                self._serialize_carrier(carrier=carrier) for carrier in self._carriers.values()
-            ],
-            "musical_items": [
-                self._serialize_musical_item(item=item) for item in self._items.values()
-            ],
-            "relations": [
-                self._serialize_relation(relation=relation) for relation in self._relations.values()
-            ],
-            "contexts": [self._serialize_context(context=context) for context in self._contexts],
-        }
-
-    def _serialize_voice(self, *, voice: Voice) -> dict[str, Any]:
-        return {
-            "id": voice.id,
-        }
-
-    def _serialize_staff(self, *, staff: Staff) -> dict[str, Any]:
-        return {
-            "id": staff.id,
+            "voice_ids": [voice.id for voice in self._voices],
+            "staff_ids": [staff.id for staff in self._staffs],
+            "measure_ids": [measure.id for measure in self._measures],
+            "relation_ids": list(self._relations),
+            "tables": {
+                "measures": {
+                    measure.id: self._serialize_measure(measure=measure)
+                    for measure in self._measures
+                },
+                "anchors": {
+                    anchor.id: self._serialize_temporal_anchor(anchor=anchor)
+                    for anchor in self._anchors.values()
+                },
+                "rhythmic": {
+                    container.id: self._serialize_rhythmic_container(container=container)
+                    for container in self._containers.values()
+                },
+                "grace_groups": {
+                    group.id: self._serialize_grace_group(group=group)
+                    for group in self._grace_groups.values()
+                },
+                "grace_items": {
+                    item.id: self._serialize_grace_item(item=item) for item in self._graces.values()
+                },
+                "carriers": {
+                    carrier.id: self._serialize_carrier(carrier=carrier)
+                    for carrier in self._carriers.values()
+                },
+                "musical_items": {
+                    item.id: self._serialize_musical_item(item=item)
+                    for item in self._items.values()
+                },
+                "relations": {
+                    relation.id: self._serialize_relation(relation=relation)
+                    for relation in self._relations.values()
+                },
+                "contexts": {
+                    context.id: self._serialize_context(context=context)
+                    for context in self._contexts
+                },
+            },
         }
 
     def _serialize_measure(self, *, measure: Measure) -> dict[str, Any]:
-        return {
-            "id": measure.id,
-            **self._serialize_rhythmic_size(size=measure.time_signature, prefix="time_signature"),
-        }
+        return self._serialize_rhythmic_size(size=measure.time_signature, prefix="time_signature")
 
     def _serialize_temporal_anchor(self, *, anchor: TemporalAnchor) -> dict[str, Any]:
         return {
-            "id": anchor.id,
             "measure_id": anchor.measure.id,
             **self._serialize_fraction(value=anchor.position.value, prefix="position"),
+            "context_ids": [context.id for context in anchor.starting_contexts],
         }
 
     def _serialize_rhythmic_container(self, *, container: RhythmicContainer) -> dict[str, Any]:
@@ -291,7 +277,6 @@ class _Serializer:
             raise TypeError(f"Unsupported rhythmic container parent type: {type(parent).__name__}.")
 
         common: dict[str, Any] = {
-            "id": container.id,
             "parent_id": parent_id,
             "anchor_id": container.start_anchor.id,
             **self._serialize_rhythmic_size(size=container.written_size, prefix="written"),
@@ -312,18 +297,14 @@ class _Serializer:
 
     def _serialize_grace_group(self, *, group: GraceGroup) -> dict[str, Any]:
         return {
-            "id": group.id,
             "leaf_id": group.leaf.id,
             "grace_type": group.grace_type.value,
             "placement": group.placement.value,
+            "grace_item_ids": [item.id for item in group.grace_items],
         }
 
     def _serialize_grace_item(self, *, item: GraceItem) -> dict[str, Any]:
-        return {
-            "id": item.id,
-            "grace_group_id": item.grace_group.id,
-            **self._serialize_dotted_value(value=item.rhythmic_value, prefix="grace_group"),
-        }
+        return self._serialize_dotted_value(value=item.rhythmic_value, prefix="item")
 
     def _serialize_carrier(self, *, carrier: Carrier) -> dict[str, Any]:
         owner: CarrierOwner | None = carrier.owner
@@ -337,7 +318,6 @@ class _Serializer:
             raise TypeError(f"Unsupported carrier owner type: {type(owner).__name__}.")
 
         common: dict[str, Any] = {
-            "id": carrier.id,
             "owner_id": owner_id,
         }
 
@@ -348,18 +328,22 @@ class _Serializer:
                     articulation.value for articulation in sorted(carrier.articulations)
                 ],
                 "ornament": carrier.ornament.value,
+                "note_ids": [note.id for note in carrier.notes],
             }
 
         if isinstance(carrier, RestCarrier):
+            if carrier.rest is None:
+                raise ValueError("Rest carrier must have a rest.")
+
             return common | {
                 "kind": "rest_carrier",
+                "rest_id": carrier.rest.id,
             }
 
         raise TypeError(f"Unsupported carrier type: {type(carrier).__name__}.")
 
     def _serialize_musical_item(self, *, item: MusicalItem) -> dict[str, Any]:
         common: dict[str, Any] = {
-            "id": item.id,
             "staff_id": item.staff.id,
         }
 
@@ -367,7 +351,6 @@ class _Serializer:
             return common | {
                 "kind": "note",
                 "staff_step": item.staff_step,
-                "note_carrier_id": item.note_carrier.id,
                 "accidental": item.accidental.value,
                 "fingering": item.fingering.value,
             }
@@ -375,25 +358,20 @@ class _Serializer:
         if isinstance(item, Rest):
             return common | {
                 "kind": "rest",
-                "rest_carrier_id": item.rest_carrier.id,
             }
 
         raise TypeError(f"Unsupported musical item type: {type(item).__name__}.")
 
     def _serialize_relation(self, *, relation: Relation) -> dict[str, Any]:
-        common: dict[str, Any] = {
-            "id": relation.id,
-        }
-
         if isinstance(relation, Tie):
-            return common | {
+            return {
                 "kind": "tie",
                 "start_note_id": relation.start.id,
                 "end_note_id": relation.end.id,
             }
 
         if isinstance(relation, Glissando):
-            return common | {
+            return {
                 "kind": "glissando",
                 "start_note_id": relation.start.id,
                 "end_note_id": relation.end.id,
@@ -401,7 +379,7 @@ class _Serializer:
             }
 
         if isinstance(relation, Beam):
-            return common | {
+            return {
                 "kind": "beam",
                 "carrier_ids": [carrier.id for carrier in relation.members],
             }
@@ -420,10 +398,7 @@ class _Serializer:
     def _serialize_context(self, *, context: Context) -> dict[str, Any]:
         # the form and scope axes add their links; the kind alone names both, so a
         # score-scoped context simply has no scope key
-        common: dict[str, Any] = {
-            "id": context.id,
-            "start_anchor_id": context.start.id,
-        }
+        common: dict[str, Any] = {}
         if isinstance(context, SpanContext):
             common |= {"end_anchor_id": None if context.end is None else context.end.id}
         if isinstance(context, StaffScoped):
@@ -530,6 +505,13 @@ class _Deserializer:
     entity's `.reconstruct()`.
     """
 
+    def _row(self, *, table: str, row_id: str) -> dict[str, Any]:
+        """A row of a table, with the id it is keyed by."""
+        return {"id": row_id, **self._tables[table][row_id]}
+
+    def _rows(self, *, table: str) -> list[dict[str, Any]]:
+        return [{"id": row_id, **row} for row_id, row in self._tables[table].items()]
+
     def _end_anchor(self, *, row: dict[str, Any]) -> TemporalAnchor | None:
         """The anchor a stored span ends at, or None for one lasting until the score ends."""
         anchor_id: str | None = row["end_anchor_id"]
@@ -538,11 +520,13 @@ class _Deserializer:
     def __init__(self, *, data: dict[str, Any]) -> None:
         self._data: dict[str, Any] = data
 
+        self._tables: dict[str, dict[str, dict[str, Any]]] = data["tables"]
+
         self._voices_by_id: dict[str, Voice] = {
-            row["id"]: Voice(id=row["id"]) for row in data["voices"]
+            voice_id: Voice(id=voice_id) for voice_id in data["voice_ids"]
         }
         self._staffs_by_id: dict[str, Staff] = {
-            row["id"]: Staff(id=row["id"]) for row in data["staffs"]
+            staff_id: Staff(id=staff_id) for staff_id in data["staff_ids"]
         }
 
         self._document: ScoreDocument = ScoreDocument.create(
@@ -571,65 +555,41 @@ class _Deserializer:
         self._build_contexts()
         self._build_presentation()
 
+    @staticmethod
+    def _target(*, row: dict[str, Any]) -> PresentationTarget:
+        return PresentationTarget(
+            entity_id=row["entity_id"], reference=ReferencePoint(row["reference"])
+        )
+
     def _build_presentation(self) -> None:
-        revision = self._data.get("music_revision")
-        if revision is not None:
-            self._document.set_music_revision(revision=revision)
+        self._document.set_music_revision(revision=self._data["music_revision"])
         presentation = self._document.presentation
-        data = self._data.get("presentation")
-        if data is not None:
-            # what an older record stored was a distance in staff spaces, which no ratio can be
-            # made of without the geometry: it is dropped, the placement is automatic again
-            current: bool = data.get("units") == _PRESENTATION_UNITS
-            for row in data.get("vertical", []) if current else []:
-                presentation.set_vertical(
-                    target=PresentationTarget(
-                        entity_id=row["entity_id"], reference=ReferencePoint(row["reference"])
-                    ),
-                    value=VerticalOffset(value=row["offset"]),
-                )
-            for row in data.get("endpoints", []) if current else []:
-                presentation.set_endpoints(
-                    target=PresentationTarget(
-                        entity_id=row["entity_id"], reference=ReferencePoint(row["reference"])
-                    ),
-                    value=EndpointOffsets(left=row["left"], right=row["right"]),
-                )
-            for row in data.get("directions", []):
-                presentation.set_direction(
-                    target=PresentationTarget(
-                        entity_id=row["entity_id"], reference=ReferencePoint(row["reference"])
-                    ),
-                    value=StemDirection(row["direction"]),
-                )
-            for row in data.get("horizontal", []) if current else []:
-                presentation.set_horizontal(
-                    target=PresentationTarget(
-                        entity_id=row["entity_id"], reference=ReferencePoint(row["reference"])
-                    ),
-                    value=HorizontalOffset(value=row["offset"]),
-                )
-            for row in data.get("horizontal_endpoints", []) if current else []:
-                presentation.set_horizontal_endpoints(
-                    target=PresentationTarget(
-                        entity_id=row["entity_id"], reference=ReferencePoint(row["reference"])
-                    ),
-                    value=HorizontalEndpointOffsets(left=row["left"], right=row["right"]),
-                )
-            return
-        # A legacy stem was a direction and a percentage of its length: the percentage is the
-        # factor of the automatic length.
-        for row in self._data["carriers"]:
-            stem = row.get("stem")
-            if stem is None:
-                continue
-            target = PresentationTarget(entity_id=row["id"], reference=ReferencePoint.STEM_TIP)
-            presentation.set_direction(target=target, value=StemDirection(stem["direction"]))
-            if stem["length_percent"] != 100:
-                presentation.set_vertical(
-                    target=target,
-                    value=VerticalOffset(value=stem["length_percent"] / 100),
-                )
+        data: dict[str, Any] = self._data["presentation"]
+        for row in data["vertical"]:
+            presentation.set_vertical(
+                target=self._target(row=row),
+                value=VerticalOffset(value=row["offset"]),
+            )
+        for row in data["endpoints"]:
+            presentation.set_endpoints(
+                target=self._target(row=row),
+                value=EndpointOffsets(left=row["left"], right=row["right"]),
+            )
+        for row in data["directions"]:
+            presentation.set_direction(
+                target=self._target(row=row),
+                value=StemDirection(row["direction"]),
+            )
+        for row in data["horizontal"]:
+            presentation.set_horizontal(
+                target=self._target(row=row),
+                value=HorizontalOffset(value=row["offset"]),
+            )
+        for row in data["horizontal_endpoints"]:
+            presentation.set_horizontal_endpoints(
+                target=self._target(row=row),
+                value=HorizontalEndpointOffsets(left=row["left"], right=row["right"]),
+            )
 
     def deserialize(self) -> ScoreDocument:
         missing: list[str] = self._document.missing_initial_contexts()
@@ -642,7 +602,8 @@ class _Deserializer:
 
     def _build_measures(self) -> dict[str, Measure]:
         by_id: dict[str, Measure] = {}
-        for row in self._data["measures"]:
+        for measure_id in self._data["measure_ids"]:
+            row: dict[str, Any] = self._row(table="measures", row_id=measure_id)
             measure: Measure = Measure.reconstruct(
                 id=row["id"],
                 time_signature=self._rhythmic_size(row=row, prefix="time_signature"),
@@ -654,7 +615,7 @@ class _Deserializer:
 
     def _build_anchors(self) -> dict[str, TemporalAnchor]:
         by_id: dict[str, TemporalAnchor] = {}
-        for row in self._data["anchors"]:
+        for row in self._rows(table="anchors"):
             by_id[row["id"]] = TemporalAnchor.reconstruct(
                 id=row["id"],
                 measure=self._measures_by_id[row["measure_id"]],
@@ -669,7 +630,7 @@ class _Deserializer:
         by_id: dict[str, RhythmicContainer] = {}
         # only groups can ever be a parent, so keep them separately
         groups_by_id: dict[str, GroupRhythmicContainer] = {}
-        remaining: list[dict[str, Any]] = list(self._data["rhythmic"])
+        remaining: list[dict[str, Any]] = self._rows(table="rhythmic")
 
         # despite serialising hierarchy in the order that allows for always hitting resolve,
         # I add additional protection by resolving in waves
@@ -731,7 +692,7 @@ class _Deserializer:
 
     def _build_grace_groups(self) -> dict[str, GraceGroup]:
         by_id: dict[str, GraceGroup] = {}
-        for row in self._data["grace_groups"]:
+        for row in self._rows(table="grace_groups"):
             leaf: RhythmicContainer = self._containers_by_id[row["leaf_id"]]
             if not isinstance(leaf, LeafRhythmicContainer):
                 raise TypeError(f"Grace group's leaf_id does not resolve to a leaf: {leaf.id!r}.")
@@ -747,39 +708,32 @@ class _Deserializer:
 
     def _build_grace_items(self) -> dict[str, GraceItem]:
         by_id: dict[str, GraceItem] = {}
-        for row in self._data["grace_items"]:
-            by_id[row["id"]] = GraceItem.reconstruct(
-                id=row["id"],
-                grace_group=self._grace_groups_by_id[row["grace_group_id"]],
-                rhythmic_value=DottedRhythmicValue(
-                    value=RhythmicValue(row["grace_group_value"]),
-                    dots_count=row["grace_group_dots"],
-                ),
-            )
+        for group_row in self._rows(table="grace_groups"):
+            for item_id in group_row["grace_item_ids"]:
+                row: dict[str, Any] = self._row(table="grace_items", row_id=item_id)
+                by_id[item_id] = GraceItem.reconstruct(
+                    id=item_id,
+                    grace_group=self._grace_groups_by_id[group_row["id"]],
+                    rhythmic_value=DottedRhythmicValue(
+                        value=RhythmicValue(row["item_value"]),
+                        dots_count=row["item_dots"],
+                    ),
+                )
 
         return by_id
 
     def _build_carriers(self) -> dict[str, Carrier]:
         by_id: dict[str, Carrier] = {}
-        for row in self._data["carriers"]:
+        for row in self._rows(table="carriers"):
             owner: CarrierOwner = self._carrier_owners_by_id[row["owner_id"]]
 
             kind: str = row["kind"]
             if kind == "note_carrier":
-                values: list[str]
-                if "articulations" in row:
-                    values = row["articulations"]
-                elif row["articulation"] != "none":
-                    # a record from before the marks became a set
-                    values = [row["articulation"]]
-                else:
-                    values = []
-
                 by_id[row["id"]] = NoteCarrier.reconstruct(
                     id=row["id"],
                     owner=owner,
-                    articulations=frozenset(Articulation(value) for value in values),
-                    ornament=Ornament(row.get("ornament", Ornament.NONE.value)),
+                    articulations=frozenset(Articulation(value) for value in row["articulations"]),
+                    ornament=Ornament(row["ornament"]),
                 )
             elif kind == "rest_carrier":
                 by_id[row["id"]] = RestCarrier.reconstruct(id=row["id"], owner=owner)
@@ -790,40 +744,45 @@ class _Deserializer:
 
     def _build_musical_items(self) -> dict[str, Note]:
         notes_by_id: dict[str, Note] = {}
-        for row in self._data["musical_items"]:
-            staff: Staff = self._staffs_by_id[row["staff_id"]]
+        for carrier_row in self._rows(table="carriers"):
+            carrier: Carrier = self._carriers_by_id[carrier_row["id"]]
+            if isinstance(carrier, NoteCarrier):
+                for note_id in carrier_row["note_ids"]:
+                    row: dict[str, Any] = self._row(table="musical_items", row_id=note_id)
+                    if row["kind"] != "note":
+                        raise TypeError(
+                            f"A note carrier holds a musical item that is no note: {note_id!r}."
+                        )
 
-            kind: str = row["kind"]
-            if kind == "note":
-                note_carrier: Carrier = self._carriers_by_id[row["note_carrier_id"]]
-                if not isinstance(note_carrier, NoteCarrier):
-                    raise TypeError(f"Note's note_carrier_id is not a note carrier: {row['id']!r}.")
-
-                notes_by_id[row["id"]] = Note.reconstruct(
-                    id=row["id"],
-                    note_carrier=note_carrier,
-                    staff=staff,
-                    staff_step=row["staff_step"],
-                    accidental=Accidental(row["accidental"]),
-                    fingering=Fingering(row["fingering"]),
-                )
-            elif kind == "rest":
-                rest_carrier: Carrier = self._carriers_by_id[row["rest_carrier_id"]]
-                if not isinstance(rest_carrier, RestCarrier):
-                    raise TypeError(f"Rest's rest_carrier_id is not a rest carrier: {row['id']!r}.")
+                    notes_by_id[note_id] = Note.reconstruct(
+                        id=note_id,
+                        note_carrier=carrier,
+                        staff=self._staffs_by_id[row["staff_id"]],
+                        staff_step=row["staff_step"],
+                        accidental=Accidental(row["accidental"]),
+                        fingering=Fingering(row["fingering"]),
+                    )
+            elif isinstance(carrier, RestCarrier):
+                rest_id: str = carrier_row["rest_id"]
+                row = self._row(table="musical_items", row_id=rest_id)
+                if row["kind"] != "rest":
+                    raise TypeError(
+                        f"A rest carrier holds a musical item that is no rest: {rest_id!r}."
+                    )
 
                 Rest.reconstruct(
-                    id=row["id"],
-                    rest_carrier=rest_carrier,
-                    staff=staff,
+                    id=rest_id,
+                    rest_carrier=carrier,
+                    staff=self._staffs_by_id[row["staff_id"]],
                 )
             else:
-                raise ValueError(f"Unsupported musical item kind: {kind}.")
+                raise TypeError(f"Unsupported carrier type: {type(carrier).__name__}.")
 
         return notes_by_id
 
     def _build_relations(self) -> None:
-        for row in self._data["relations"]:
+        for relation_id in self._data["relation_ids"]:
+            row: dict[str, Any] = self._row(table="relations", row_id=relation_id)
             kind: str = row["kind"]
             if kind == "tie":
                 Tie.reconstruct(
@@ -847,112 +806,104 @@ class _Deserializer:
                 raise ValueError(f"Unsupported relation kind: {kind}.")
 
     def _build_contexts(self) -> None:
-        # rebuilt in stored order, so each anchor's starting contexts and every staff and
-        # voice index come back as they were; an anchor's ending contexts come back in
-        # start order. A record written before contexts were stored has no table.
-        for row in self._data.get("contexts", []):
-            start: TemporalAnchor = self._anchors_by_id[row["start_anchor_id"]]
+        # rebuilt measure by measure, anchor by anchor, in each anchor's own order, so each
+        # anchor's starting contexts and every staff and voice index come back as they were;
+        # an anchor's ending contexts come back in start order
+        for measure in self._document.measures:
+            for start in measure.anchors:
+                for context_id in self._tables["anchors"][start.id]["context_ids"]:
+                    self._build_context(
+                        row=self._row(table="contexts", row_id=context_id), start=start
+                    )
 
-            kind: str = row["kind"]
-            if kind == "tempo_change":
-                if "beat_value" not in row:
-                    raise ValueError(_OLD_FORMAT)
-
-                TempoChange.reconstruct(
-                    id=row["id"],
-                    start=start,
-                    beat=DottedRhythmicValue(
-                        value=RhythmicValue(row["beat_value"]), dots_count=row["beat_dots"]
-                    ),
-                    bpm=row["bpm"],
-                    show_label=row.get("show_label", row.get("label") is not None),
-                )
-            elif kind == "clef_change":
-                ClefChange.reconstruct(
-                    id=row["id"],
-                    start=start,
-                    staff=self._staffs_by_id[row["staff_id"]],
-                    clef=Clef(row["clef"]),
-                    octave_transposition=row["octave_transposition"],
-                )
-            elif kind == "key_signature_change":
-                if "alterations" not in row:
-                    raise ValueError(_OLD_FORMAT)
-
-                KeySignatureChange.reconstruct(
-                    id=row["id"],
-                    start=start,
-                    staff=self._staffs_by_id[row["staff_id"]],
-                    alterations=tuple(Accidental(value) for value in row["alterations"]),
-                )
-            elif kind == "dynamic_change":
-                DynamicChange.reconstruct(
-                    id=row["id"],
-                    start=start,
-                    voices=[self._voices_by_id[voice_id] for voice_id in row["voice_ids"]],
-                    dynamic=DynamicMarking(row["dynamic"]),
-                )
-            elif kind == "sustain_hold":
-                SustainHold.reconstruct(
-                    id=row["id"],
-                    start=start,
-                    end=self._end_anchor(row=row),
-                )
-            elif kind == "repeat":
-                # drafts stored before repeats became refrains and voltas: the element is
-                # dropped and its bars stay
-                continue
-            elif kind == "refrain":
-                Refrain.reconstruct(
-                    id=row["id"],
-                    start=start,
-                    jump=Jump.reconstruct(
-                        id=row["jump_id"], source=self._end_anchor(row=row), target=start
-                    ),
-                    times=row["times"],
-                )
-            elif kind == "volta":
-                Volta.reconstruct(
-                    id=row["id"],
-                    start=start,
-                    backs=[self._jump_rule(row=rule) for rule in row["backs"]],
-                    skips=[self._jump_rule(row=rule) for rule in row["skips"]],
-                )
-            elif kind == "octave_transposition":
-                OctaveTransposition.reconstruct(
-                    id=row["id"],
-                    start=start,
-                    end=self._end_anchor(row=row),
-                    staff=self._staffs_by_id[row["staff_id"]],
-                    octaves=row["octaves"],
-                )
-            elif kind == "hairpin":
-                if "steps" not in row:
-                    raise ValueError(_OLD_FORMAT)
-
-                Hairpin.reconstruct(
-                    id=row["id"],
-                    start=start,
-                    end=self._end_anchor(row=row),
-                    voices=[self._voices_by_id[voice_id] for voice_id in row["voice_ids"]],
-                    steps=row["steps"],
-                )
-            elif kind == "tempo_transition":
-                TempoTransition.reconstruct(
-                    id=row["id"],
-                    start=start,
-                    end=self._end_anchor(row=row),
-                    ratio=self._fraction(row=row, prefix="ratio"),
-                )
-            elif kind == "slur":
-                Slur.reconstruct(
-                    id=row["id"],
-                    start=start,
-                    end=self._end_anchor(row=row),
-                    voices=[self._voices_by_id[voice_id] for voice_id in row["voice_ids"]],
-                )
-            else:
-                raise ValueError(f"Unsupported context kind: {kind}.")
+    def _build_context(self, *, row: dict[str, Any], start: TemporalAnchor) -> None:
+        kind: str = row["kind"]
+        if kind == "tempo_change":
+            TempoChange.reconstruct(
+                id=row["id"],
+                start=start,
+                beat=DottedRhythmicValue(
+                    value=RhythmicValue(row["beat_value"]), dots_count=row["beat_dots"]
+                ),
+                bpm=row["bpm"],
+                show_label=row["show_label"],
+            )
+        elif kind == "clef_change":
+            ClefChange.reconstruct(
+                id=row["id"],
+                start=start,
+                staff=self._staffs_by_id[row["staff_id"]],
+                clef=Clef(row["clef"]),
+                octave_transposition=row["octave_transposition"],
+            )
+        elif kind == "key_signature_change":
+            KeySignatureChange.reconstruct(
+                id=row["id"],
+                start=start,
+                staff=self._staffs_by_id[row["staff_id"]],
+                alterations=tuple(Accidental(value) for value in row["alterations"]),
+            )
+        elif kind == "dynamic_change":
+            DynamicChange.reconstruct(
+                id=row["id"],
+                start=start,
+                voices=[self._voices_by_id[voice_id] for voice_id in row["voice_ids"]],
+                dynamic=DynamicMarking(row["dynamic"]),
+            )
+        elif kind == "sustain_hold":
+            SustainHold.reconstruct(
+                id=row["id"],
+                start=start,
+                end=self._end_anchor(row=row),
+            )
+        elif kind == "refrain":
+            Refrain.reconstruct(
+                id=row["id"],
+                start=start,
+                jump=Jump.reconstruct(
+                    id=row["jump_id"], source=self._end_anchor(row=row), target=start
+                ),
+                times=row["times"],
+            )
+        elif kind == "volta":
+            Volta.reconstruct(
+                id=row["id"],
+                start=start,
+                backs=[self._jump_rule(row=rule) for rule in row["backs"]],
+                skips=[self._jump_rule(row=rule) for rule in row["skips"]],
+            )
+        elif kind == "octave_transposition":
+            OctaveTransposition.reconstruct(
+                id=row["id"],
+                start=start,
+                end=self._end_anchor(row=row),
+                staff=self._staffs_by_id[row["staff_id"]],
+                octaves=row["octaves"],
+            )
+        elif kind == "hairpin":
+            Hairpin.reconstruct(
+                id=row["id"],
+                start=start,
+                end=self._end_anchor(row=row),
+                voices=[self._voices_by_id[voice_id] for voice_id in row["voice_ids"]],
+                steps=row["steps"],
+            )
+        elif kind == "tempo_transition":
+            TempoTransition.reconstruct(
+                id=row["id"],
+                start=start,
+                end=self._end_anchor(row=row),
+                ratio=self._fraction(row=row, prefix="ratio"),
+            )
+        elif kind == "slur":
+            Slur.reconstruct(
+                id=row["id"],
+                start=start,
+                end=self._end_anchor(row=row),
+                voices=[self._voices_by_id[voice_id] for voice_id in row["voice_ids"]],
+            )
+        else:
+            raise ValueError(f"Unsupported context kind: {kind}.")
 
     def _jump_rule(self, *, row: dict[str, Any]) -> JumpRule:
         source_id: str | None = row["source_anchor_id"]
@@ -991,16 +942,20 @@ class CodecError(Exception):
 
 
 class ScoreDocumentCodec:
-    def serialize(self, document: ScoreDocument) -> SerializedScoreDocument:
+    def serialize(self, document: ScoreDocument) -> DocumentRecord:
         try:
             serializer: _Serializer = _Serializer(document=document)
             return serializer.serialize()
         except Exception as e:
             raise CodecError(reason=str(e)) from e
 
-    def deserialize(self, data: SerializedScoreDocument) -> ScoreDocument:
+    def deserialize(self, data: DocumentRecord) -> ScoreDocument:
         try:
             deserializer: _Deserializer = _Deserializer(data=data)
             return deserializer.deserialize()
         except Exception as e:
             raise CodecError(reason=str(e)) from e
+
+
+# Kept until the Postgres draft schema stores a DocumentRecord (the draft storage change).
+type SerializedScoreDocument = DocumentRecord
