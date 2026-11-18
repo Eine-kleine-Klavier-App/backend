@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from piano_app.domain.score.document.models import ScoreDocument
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.engine.analyzers.context import (
     AppendVoltaFragmentAnalyzer,
     ClearContextsAnalyzer,
@@ -57,6 +58,7 @@ from piano_app.domain.score.document.services.mutation.engine.analyzers.material
     UpdateStaffStepAnalyzer,
 )
 from piano_app.domain.score.document.services.mutation.engine.analyzers.relations import (
+    AddBeamMemberAnalyzer,
     CheckRelationAnalyzer,
     CreateBeamAnalyzer,
     CreateGlissandoAnalyzer,
@@ -132,6 +134,7 @@ from piano_app.domain.score.document.services.mutation.engine.handlers.material 
     UpdateStaffStepHandler,
 )
 from piano_app.domain.score.document.services.mutation.engine.handlers.relations import (
+    AddBeamMemberHandler,
     CreateBeamHandler,
     CreateGlissandoHandler,
     CreateTieHandler,
@@ -215,6 +218,7 @@ from piano_app.domain.score.document.services.mutation.instructions.actions.mate
     UpdateStaffStepAction,
 )
 from piano_app.domain.score.document.services.mutation.instructions.actions.relations import (
+    AddBeamMemberAction,
     CreateBeamAction,
     CreateGlissandoAction,
     CreateTieAction,
@@ -301,6 +305,7 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.mat
     UpdateStaffStepRequest,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.relations import (
+    AddBeamMemberRequest,
     CheckRelationRequest,
     CreateBeamRequest,
     CreateGlissandoRequest,
@@ -399,6 +404,7 @@ def build_analyzer_registry() -> MutationAnalyzerRegistry:
         analyzer=UpdateBeamMembersAnalyzer(),
     )
     registry.register(request_type=CreateBeamRequest, analyzer=CreateBeamAnalyzer())
+    registry.register(request_type=AddBeamMemberRequest, analyzer=AddBeamMemberAnalyzer())
     registry.register(request_type=SplitBeamRequest, analyzer=SplitBeamAnalyzer())
     registry.register(
         request_type=UpdateRelationStartRequest,
@@ -550,6 +556,7 @@ def build_handler_registry() -> MutationHandlerRegistry:
     registry.register(action_type=SplitRhythmicGroupAction, handler=SplitRhythmicGroupHandler())
     registry.register(action_type=UpdateBeamMembersAction, handler=UpdateBeamMembersHandler())
     registry.register(action_type=CreateBeamAction, handler=CreateBeamHandler())
+    registry.register(action_type=AddBeamMemberAction, handler=AddBeamMemberHandler())
     registry.register(action_type=UpdateRelationStartAction, handler=UpdateRelationStartHandler())
     registry.register(action_type=CreateMeasureAction, handler=CreateMeasureHandler())
     registry.register(action_type=DeleteMeasureAction, handler=DeleteMeasureHandler())
@@ -603,6 +610,7 @@ def build_engine(
     checkpoint_geometry_check: Callable[[ScoreGeometry, ScoreDocument], None] | None = None,
     checkpoint_pitch_check: Callable[[ScorePitch, ScoreGeometry, ScoreDocument], None]
     | None = None,
+    checkpoint_entities_check: Callable[[EntityIndex, ScoreDocument], None] | None = None,
 ) -> MutationEngine:
     """The engine; production sets no checks, tests set them."""
     return MutationEngine(
@@ -614,4 +622,5 @@ def build_engine(
         geometry_check=geometry_check,
         checkpoint_geometry_check=checkpoint_geometry_check,
         checkpoint_pitch_check=checkpoint_pitch_check,
+        checkpoint_entities_check=checkpoint_entities_check,
     )

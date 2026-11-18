@@ -21,6 +21,16 @@ class UpdateBeamMembersRequest(UpdateMutationRequest[Beam]):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class AddBeamMemberRequest(UpdateMutationRequest[Beam]):
+    """A request to take ``carrier`` into a beam, right after its member ``after``."""
+
+    axis: ClassVar[Axis | None] = Axis.RELATIONS
+
+    carrier: Carrier
+    after: Carrier
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CreateBeamRequest(CreateMutationRequest[Beam]):
     """A request to beam ``carriers`` together."""
 
