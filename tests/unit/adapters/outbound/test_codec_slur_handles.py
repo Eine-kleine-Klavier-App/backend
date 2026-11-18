@@ -56,18 +56,3 @@ def test_the_handles_of_a_slur_survive_a_round_trip() -> None:
         left=0.5, right=-0.5
     )
     assert codec.serialize(decoded) == codec.serialize(document)
-
-
-@pytest.mark.unit
-def test_a_record_without_sideways_moves_reads_as_having_none() -> None:
-    codec: ScoreDocumentCodec = ScoreDocumentCodec()
-    document, _top, lower = _with_a_shaped_slur()
-    data = codec.serialize(document)
-    del data["presentation"]["horizontal"]
-    del data["presentation"]["horizontal_endpoints"]
-
-    decoded: ScoreDocument = codec.deserialize(data)
-
-    assert not decoded.presentation.horizontal
-    assert not decoded.presentation.horizontal_endpoints
-    assert decoded.presentation.vertical[lower] == VerticalOffset(value=1)

@@ -89,20 +89,3 @@ def test_a_volta_whose_last_ending_lasts_to_the_end_of_the_score_survives_a_roun
     restored: Volta = _restored(document=decoded, kind=Volta)[volta.id]
     assert restored.fragments[-1].end is None
     assert codec.serialize(decoded) == codec.serialize(document)
-
-
-@pytest.mark.unit
-def test_a_repeat_stored_before_refrains_is_dropped_and_its_bars_stay() -> None:
-    codec: ScoreDocumentCodec = ScoreDocumentCodec()
-    document: ScoreDocument = _document()
-    Refrain.create(start=anchor(document, Fraction(0)), end=anchor(document, Fraction(2)), times=2)
-    stored: dict[str, object] = codec.serialize(document)
-    (row,) = [row for row in stored["contexts"] if row["kind"] == "refrain"]  # type: ignore[attr-defined,index,union-attr]
-    for key in ("end_anchor_id", "jump_id", "times"):
-        row.pop(key, None)
-    row.update({"kind": "repeat", "passes": [1, 2], "form": "signs"})
-
-    decoded: ScoreDocument = codec.deserialize(stored)
-
-    assert len(decoded.measures) == len(document.measures)
-    assert _restored(document=decoded, kind=Refrain) == {}

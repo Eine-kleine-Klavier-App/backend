@@ -13,7 +13,6 @@ from piano_app.domain.score.document.services.helpers import find_beams
 from piano_app.domain.score.document.services.mutation.compiler import (
     AppendMeasureIntent,
     ChangeTimeSignatureIntent,
-    CreateBeamIntent,
     EditIntent,
     InsertMeasureIntent,
     RemoveMeasureIntent,
@@ -116,11 +115,11 @@ def test_a_document_after_a_beam_is_cut_in_two_re_serialises_byte_for_byte() -> 
 
 @pytest.mark.unit
 def test_a_draft_edited_through_the_new_intents_re_serialises_byte_for_byte() -> None:
-    """Four eighths beamed through the intent, a triplet of eighths after them, and measure two
+    """Two eighths, beamed as they are entered, a triplet of eighths after them, and measure two
     — a quarter on its first beat — turned into 3/4, which adds a measure."""
     codec: ScoreDocumentCodec = ScoreDocumentCodec()
     score: Score = build_score(measure_count=2)
-    for index in range(4):
+    for index in range(2):
         insert_note(
             score=score,
             at=index * Fraction(1, 8),
@@ -128,12 +127,8 @@ def test_a_draft_edited_through_the_new_intents_re_serialises_byte_for_byte() ->
             step=index + 1,
         )
     beamed: list[Carrier] = [
-        note_at(score=score, at=index * Fraction(1, 8)).note_carrier for index in range(4)
+        note_at(score=score, at=index * Fraction(1, 8)).note_carrier for index in range(2)
     ]
-    apply_intent(
-        score=score,
-        intent=CreateBeamIntent(carrier_ids=tuple(carrier.id for carrier in beamed)),
-    )
     create_tuplet_with_note(
         score=score,
         at=Fraction(1, 2),

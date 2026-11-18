@@ -22,7 +22,7 @@ def test_stem_placement_survives_roundtrip_outside_carrier():
     score.document.presentation.set_direction(target=target, value=StemDirection.UP)
     codec = ScoreDocumentCodec()
     data = codec.serialize(score.document)
-    assert all("stem" not in row for row in data["carriers"])
+    assert all("stem" not in row for row in data["tables"]["carriers"].values())
     restored = codec.deserialize(data)
     assert restored.presentation.vertical[target].value == -1.75
     assert restored.presentation.directions[target] is StemDirection.UP

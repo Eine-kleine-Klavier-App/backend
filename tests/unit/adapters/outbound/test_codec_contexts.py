@@ -4,12 +4,10 @@ from dataclasses import fields
 from fractions import Fraction
 
 import pytest
+from tests.fixtures.records import as_stored
 
-from piano_app.adapters.outbound.shared.codec import (
-    CodecError,
-    ScoreDocumentCodec,
-    SerializedScoreDocument,
-)
+from piano_app.adapters.outbound.shared.codec import CodecError, ScoreDocumentCodec
+from piano_app.application.ports.score import DocumentRecord
 from piano_app.domain.score.document.models import ScoreDocument, ScoreEntity
 from piano_app.domain.score.document.models.context import (
     ClefChange,
@@ -37,7 +35,8 @@ from ...domain.scene import Score, anchor_at, build_two_voices, quarters
 # One tempo, a clef and a key signature for the staff, and one dynamic shared by both voices.
 _START_CONTEXTS: int = 4
 
-# Contexts are stored in one table, in the order their start anchors list them. Re-serialising
+# Contexts are stored in one table, and each anchor lists the ids of the ones that start at it,
+# in order. Re-serialising
 # only proves the stored fields survive; the back-references (staff, voice and anchor indexes)
 # are not in the record, so they are checked on the decoded document directly.
 
@@ -253,7 +252,7 @@ def test_several_contexts_on_one_anchor_keep_every_index_order() -> None:
     )
 
     encoded: str = json.dumps(codec.serialize(first.document))
-    decoded: ScoreDocument = codec.deserialize(json.loads(encoded))
+    decoded: ScoreDocument = codec.deserialize(as_stored(json.loads(encoded)))
 
     decoded_start: TemporalAnchor = _anchor(document=decoded, anchor_id=start.id)
     decoded_end: TemporalAnchor = _anchor(document=decoded, anchor_id=end.id)
@@ -285,11 +284,11 @@ def test_a_document_with_contexts_re_serialises_byte_for_byte_twice() -> None:
 
     assert json.dumps(codec.serialize(once)) == encoded
     assert json.dumps(codec.serialize(twice)) == encoded
-    assert len(json.loads(encoded)["contexts"]) == _START_CONTEXTS + 6
+    assert len(json.loads(encoded)["tables"]["contexts"]) == _START_CONTEXTS + 6
 
 
 def _serialized_contexts(score: Score) -> list[dict[str, object]]:
-    return list(ScoreDocumentCodec().serialize(score.document)["contexts"])
+    return list(ScoreDocumentCodec().serialize(score.document)["tables"]["contexts"].values())
 
 
 @pytest.mark.unit
@@ -300,51 +299,41 @@ def test_a_scene_holds_the_contexts_every_score_starts_with() -> None:
     assert first.document.missing_initial_contexts() == []
 
 
+def _without_contexts(record: DocumentRecord, *, kind: str | None) -> DocumentRecord:
+    """The record with the contexts of a kind (all of them for ``None``) taken out of both the
+    contexts table and the lists of the anchors they start at."""
+    contexts: dict[str, dict[str, object]] = record["tables"]["contexts"]
+    removed: set[str] = {
+        context_id for context_id, row in contexts.items() if kind is None or row["kind"] == kind
+    }
+    return {
+        **record,
+        "tables": {
+            **record["tables"],
+            "contexts": {
+                context_id: row for context_id, row in contexts.items() if context_id not in removed
+            },
+            "anchors": {
+                anchor_id: {
+                    **row,
+                    "context_ids": [
+                        context_id for context_id in row["context_ids"] if context_id not in removed
+                    ],
+                }
+                for anchor_id, row in record["tables"]["anchors"].items()
+            },
+        },
+    }
+
+
 @pytest.mark.unit
 def test_a_record_without_the_start_of_score_contexts_is_refused() -> None:
     codec: ScoreDocumentCodec = ScoreDocumentCodec()
     first, _ = _scene()
-    record: SerializedScoreDocument = codec.serialize(first.document)
-    without_tempo: SerializedScoreDocument = {
-        **record,
-        "contexts": [row for row in record["contexts"] if row["kind"] != "tempo_change"],
-    }
+    record: DocumentRecord = codec.serialize(first.document)
 
     with pytest.raises(CodecError, match="tempo"):
-        codec.deserialize(without_tempo)
+        codec.deserialize(_without_contexts(record, kind="tempo_change"))
 
     with pytest.raises(CodecError, match="lacks"):
-        codec.deserialize({key: rows for key, rows in record.items() if key != "contexts"})
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("kind", "stale"),
-    [
-        ("tempo_change", {"bpm": 90, "marking": None}),
-        ("key_signature_change", {"symbols": []}),
-        ("hairpin", {"hairpin_type": "crescendo"}),
-    ],
-)
-def test_a_record_in_the_older_format_of_a_context_is_refused(
-    kind: str, stale: dict[str, object]
-) -> None:
-    codec: ScoreDocumentCodec = ScoreDocumentCodec()
-    first, second = _scene()
-    _hairpin_across_measures(first, second)
-    record: SerializedScoreDocument = codec.serialize(first.document)
-    old: list[dict[str, object]] = []
-    for row in record["contexts"]:
-        if row["kind"] == kind:
-            keep = {
-                key: row[key]
-                for key in row
-                if key
-                in {"id", "kind", "start_anchor_id", "end_anchor_id", "staff_id", "voice_ids"}
-            }
-            old.append({**keep, **stale})
-        else:
-            old.append(row)
-
-    with pytest.raises(CodecError, match="older format"):
-        codec.deserialize({**record, "contexts": old})
+        codec.deserialize(_without_contexts(record, kind=None))

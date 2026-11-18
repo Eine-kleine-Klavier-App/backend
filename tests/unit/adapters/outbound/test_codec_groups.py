@@ -1,6 +1,7 @@
 from fractions import Fraction
 
 import pytest
+from tests.fixtures.records import as_stored
 
 from piano_app.adapters.outbound.shared.codec import ScoreDocumentCodec
 from piano_app.domain.score.document.models import ScoreDocument
@@ -88,7 +89,7 @@ def test_a_document_with_nested_and_barline_crossing_groups_round_trips() -> Non
     codec: ScoreDocumentCodec = ScoreDocumentCodec()
     score: Score = _score_with_groups()
 
-    decoded: ScoreDocument = codec.deserialize(codec.serialize(score.document))
+    decoded: ScoreDocument = codec.deserialize(as_stored(codec.serialize(score.document)))
 
     assert codec.serialize(decoded) == codec.serialize(score.document)
     assert layout(score=_as_score(document=decoded)) == layout(score=score)
