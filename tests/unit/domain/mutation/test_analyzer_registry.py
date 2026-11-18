@@ -7,6 +7,7 @@ from piano_app.domain.score.document.models.material import Note
 from piano_app.domain.score.document.models.notation import Fingering
 from piano_app.domain.score.document.services.contexts import ContextIndex
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.engine.indexes import Indexes
 from piano_app.domain.score.document.services.mutation.engine.registry import (
     MutationAnalyzerRegistry,
@@ -60,6 +61,7 @@ def _indexes(*, document: ScoreDocument) -> Indexes:
     contexts: ContextIndex = ContextIndex(document=document, geometry=geometry)
 
     return Indexes(
+        entities=EntityIndex(document=document),
         geometry=geometry,
         pitch=ScorePitch(document=document, geometry=geometry, contexts=contexts),
         contexts=contexts,

@@ -5,6 +5,7 @@ from piano_app.domain.score.document.models.structural import Measure, Staff, Vo
 from piano_app.domain.score.document.services.contexts import ContextIndex
 from piano_app.domain.score.document.services.geometry import Point
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation.compiler.intents import InsertNoteIntent
 from piano_app.domain.score.document.services.mutation.compiler.steps import (
     expect_entity,
@@ -32,9 +33,10 @@ class InsertNoteCompiler:
         *,
         document: ScoreDocument,
         intent: InsertNoteIntent,
+        entities: EntityIndex,
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
-            document=document,
+            entities=entities,
             entity_ids=(intent.voice_id, intent.staff_id, intent.measure_id),
         )
         voice: Voice = expect_entity(
@@ -86,5 +88,6 @@ class InsertNoteCompiler:
                     accidental=accidental,
                     fingering=intent.fingering,
                 ),
+                beam_share=intent.beam_share,
             ),
         ]

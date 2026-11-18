@@ -46,3 +46,6 @@ class PlaceSpansRequest(MutationRequest):
     position: MeasurePosition
     written_length: Fraction
     content: NoteContent | RestContent
+    # a new note of an eighth or shorter joins the beam of the note before it while that beam holds
+    # less than this part of the measure; 0 puts no note into a beam
+    beam_share: Fraction = Fraction(0)
