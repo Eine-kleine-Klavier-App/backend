@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -52,14 +52,19 @@ def build_anchors(
     geometry: ScoreGeometry,
     route: Sequence[RouteSegment],
     timeline: Timeline,
+    measure_ids: Collection[str] | None = None,
 ) -> list[PlayedAnchor]:
     """The leaves of the score as they are played, in the order they start. A leaf belongs to
-    the stretch of the route it starts in and is cut at its end, as in ``build_sounds``."""
+    the stretch of the route it starts in and is cut at its end, as in ``build_sounds``.
+    ``measure_ids`` reads only the leaves of those measures."""
     anchors: list[PlayedAnchor] = []
     offset: Fraction = Fraction(0)
     for segment in route:
         for voice in document.voices:
             for leaf in iter_leaves(voice):
+                if measure_ids is not None and leaf.anchor.measure.id not in measure_ids:
+                    continue
+
                 carrier: Carrier | None = leaf.carrier
                 span = geometry.global_span_of(container=leaf)
                 if carrier is None or not segment.start <= span.start < segment.end:

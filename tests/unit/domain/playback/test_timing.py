@@ -139,6 +139,22 @@ def test_a_note_ending_as_the_pedal_goes_down_or_up_is_not_prolonged() -> None:
 
 
 @pytest.mark.unit
+def test_a_note_is_prolonged_by_the_one_of_several_stretches_it_ends_in() -> None:
+    changed: list[PedalSpan] = [
+        PedalSpan(start=Fraction(1, 8), end=_Q),
+        PedalSpan(start=_Q, end=Fraction(1, 2)),
+        PedalSpan(start=Fraction(5, 8), end=Fraction(3, 4)),
+    ]
+
+    assert _times(end=Fraction(3, 16), pedal=changed)[1] == pytest.approx(500)
+    assert _times(end=_Q, pedal=changed)[1] == pytest.approx(500)
+    assert _times(end=Fraction(3, 8), pedal=changed)[1] == pytest.approx(1000)
+    assert _times(end=Fraction(9, 16), pedal=changed)[1] == pytest.approx(1125)
+    assert _times(end=Fraction(11, 16), pedal=changed)[1] == pytest.approx(1500)
+    assert _times(end=Fraction(7, 8), pedal=changed)[1] == pytest.approx(1750)
+
+
+@pytest.mark.unit
 def test_a_note_ending_before_the_pedal_or_after_it_is_not_prolonged() -> None:
     span: PedalSpan = PedalSpan(start=_Q, end=Fraction(1, 2))
 
