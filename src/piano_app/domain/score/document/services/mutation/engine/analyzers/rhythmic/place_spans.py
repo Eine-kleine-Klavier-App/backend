@@ -1,10 +1,12 @@
 from dataclasses import dataclass, replace
+from fractions import Fraction
 
 from piano_app.domain.score.document.models.material import (
     Carrier,
     Note,
     NoteCarrier,
 )
+from piano_app.domain.score.document.models.notation import RhythmicValue
 from piano_app.domain.score.document.models.structural.rhythm import (
     LeafRhythmicContainer,
     RhythmicContainer,
@@ -12,6 +14,7 @@ from piano_app.domain.score.document.models.structural.rhythm import (
 )
 from piano_app.domain.score.document.services.geometry import Span
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
+from piano_app.domain.score.document.services.helpers import find_beams
 from piano_app.domain.score.document.services.mutation.engine.analyzers.rhythmic.content import (
     create_note,
     create_piece,
@@ -31,6 +34,10 @@ from piano_app.domain.score.document.services.mutation.engine.analyzers.rhythmic
 from piano_app.domain.score.document.services.mutation.engine.typing import MutationAnalysis
 from piano_app.domain.score.document.services.mutation.instructions import (
     MutationRejectedError,
+)
+from piano_app.domain.score.document.services.mutation.instructions.requests.relations import (
+    AddBeamMemberRequest,
+    CreateBeamRequest,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.rhythmic import (
     NoteContent,
@@ -66,6 +73,12 @@ class PlaceSpansAnalyzer:
     every container the item meets — a leaf, or a group with everything in it — is
     removed. Each piece is created as a new leaf with its carrier and its note or rest,
     then the new notes are tied piece to piece; rests are not.
+
+    A new note of an eighth or shorter, whole in its measure, that is not added to a chord, is
+    beamed with the note just before it: when that is a note of an eighth or shorter, in the
+    same scope and measure, ending where the new one starts, and the beam it would join, up to the
+    new note, holds less than the request's part of the measure (0 beams nothing). It takes the
+    place after it in that note's beam, or the two make a beam.
 
     Everything geometric is decided before the first yield; only model terms (measures,
     positions, values) and the met entities are carried across.
@@ -108,6 +121,51 @@ class PlaceSpansAnalyzer:
             landings.append(_Landing(piece=piece, met=met, joined=joined))
 
         content: NoteContent | RestContent = request.content
+        created: LeafRhythmicContainer | None = None
+
+        # the note before the new one that it is beamed with, if any
+        beamed_with: NoteCarrier | None = None
+        if (
+            isinstance(content, NoteContent)
+            and request.beam_share > 0
+            and len(landings) == 1
+            and landings[0].joined is None
+            and landings[0].piece.written_value.value > RhythmicValue.QUARTER
+        ):
+            for child, child_span in geometry.contents_in(
+                scope=scope, measure=landings[0].piece.measure
+            ):
+                if (
+                    isinstance(child, LeafRhythmicContainer)
+                    and isinstance(child.carrier, NoteCarrier)
+                    and child.written_size.value.value > RhythmicValue.QUARTER
+                    and child_span.end == landings[0].piece.span.start
+                ):
+                    beamed_with = child.carrier
+
+        # a beam holds notes until it holds the requested part of the measure; the next note
+        # then begins another
+        if beamed_with is not None:
+            beam_members: list[Carrier] = [beamed_with]
+            beams_before = find_beams(carriers=[beamed_with])
+            if beams_before:
+                beam_members = list(beams_before[0].members)
+            held: Fraction = Fraction(0)
+            for child, child_span in geometry.contents_in(
+                scope=scope, measure=landings[0].piece.measure
+            ):
+                if (
+                    isinstance(child, LeafRhythmicContainer)
+                    and child_span.end <= landings[0].piece.span.start
+                    and any(child.carrier is member for member in beam_members)
+                ):
+                    held += geometry.global_span_of(container=child).length
+            room: Fraction = (
+                geometry.measure_span(measure=landings[0].piece.measure).length * request.beam_share
+            )
+            if held >= room:
+                beamed_with = None
+
         joined_carriers: list[NoteCarrier] = [
             landing.joined for landing in landings if landing.joined is not None
         ]
@@ -162,7 +220,7 @@ class PlaceSpansAnalyzer:
             yield from free_room(met=met_all)
 
             for index, landing in enumerate(landings):
-                _leaf, piece_notes = yield from create_piece(
+                created, piece_notes = yield from create_piece(
                     scope=scope,
                     piece=landing.piece,
                     content=[note_contents[index]] if isinstance(content, NoteContent) else content,
@@ -171,3 +229,16 @@ class PlaceSpansAnalyzer:
 
         # the pieces of a note sound as one: each is tied to the next, after all exist
         yield from tie_pieces(notes_by_piece=[[note] for note in notes])
+
+        if (
+            beamed_with is not None
+            and created is not None
+            and isinstance(created.carrier, NoteCarrier)
+        ):
+            beams = find_beams(carriers=[beamed_with])
+            if beams:
+                yield AddBeamMemberRequest(
+                    target=beams[0], carrier=created.carrier, after=beamed_with
+                )
+            else:
+                yield CreateBeamRequest(carriers=(beamed_with, created.carrier))

@@ -356,14 +356,15 @@ def test_a_cleared_tuplet_in_the_middle_of_a_beam_cuts_it_into_the_runs_that_rem
 @pytest.mark.unit
 def test_a_beam_is_cut_only_where_an_element_leaves_it_never_at_a_tuplet_edge() -> None:
     """A sixteenth over the last eighth takes only it; the junctions at the triplet's edges,
-    which the beam already crossed, stay."""
+    which the beam already crossed, stay. The sixteenth itself, a short note touching the beam's
+    last, joins the beam: the beam holds less than half the measure."""
     score, beam = _beam_over_a_triplet()
     members: list[Carrier] = list(beam.members)
 
     insert_note(score=score, at=Fraction(5, 8), rhythmic_value=RhythmicValue.SIXTEENTH)
 
-    assert _beamed_steps(score=score) == [[7, 8, 1, 2, 3, 10]]
-    assert list(beam.members) == members[:-1]
+    assert _beamed_steps(score=score) == [[7, 8, 1, 2, 3, 10, 9]]
+    assert list(beam.members)[:-1] == members[:-1]
     assert orphan_anchors(score=score) == []
 
 
