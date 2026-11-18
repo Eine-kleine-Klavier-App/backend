@@ -1,6 +1,7 @@
 from .author_repository import AuthorProfile, AuthorRepository
 from .catalog_query import ScoreCatalogQuery, ScoreMetaItem
 from .collection_repository import CollectionPin, CollectionRepository, CollectionSummary
+from .document_codec import DocumentCodec, DocumentRecord
 from .draft_history import DraftHistory
 from .draft_store import (
     DraftMeta,
@@ -22,6 +23,8 @@ __all__ = (
     "CollectionPin",
     "CollectionRepository",
     "CollectionSummary",
+    "DocumentCodec",
+    "DocumentRecord",
     "DraftHistory",
     "DraftMeta",
     "DraftStore",

@@ -15,7 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from piano_app.adapters.outbound.shared.codec import SerializedScoreDocument
+from piano_app.application.ports.score import DocumentRecord
 
 from .base import Base
 
@@ -93,7 +93,7 @@ class ScoreContentModel(Base):
         index=True,
     )
     version: Mapped[int] = mapped_column(Integer)
-    document: Mapped[SerializedScoreDocument] = mapped_column(JSONB)
+    document: Mapped[DocumentRecord] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
