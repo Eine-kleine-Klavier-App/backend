@@ -1,74 +1,30 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Protocol, Self
+from typing import Protocol
 
 from piano_app.domain.score.document import ScoreDocument
 
-
-class DraftStoreNotFoundError(Exception):
-    """Raised when a required draft disappears from the store."""
-
-    def __init__(self, *, draft_id: str) -> None:
-        super().__init__(f"No stored draft with id {draft_id!r}.")
-        self.draft_id: str = draft_id
-
-
-class DraftStoreVersionConflictError(Exception):
-    """Raised when a write is based on an outdated stored draft version."""
-
-    def __init__(self, *, draft_id: str, version: int | None) -> None:
-        super().__init__(f"Stored draft {draft_id!r} is no longer at version {version!r}.")
-        self.draft_id: str = draft_id
-        self.version: int | None = version
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class DraftMeta:
-    """Metadata about a draft."""
-
-    draft_id: str
-    title: str
-    author_id: str
-    ref_score_id: str | None
-    updated_at: datetime
+from .draft_storage import DraftMeta, StoredDraft
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class VersionedDraftDocument:
-    """A score document paired with the draft version it was loaded from."""
+    """A score document paired with the stored draft it was loaded from."""
 
-    meta: DraftMeta
+    stored: StoredDraft
     document: ScoreDocument
-    version: int
+
+    @property
+    def meta(self) -> DraftMeta:
+        return self.stored.meta
+
+    @property
+    def version(self) -> int:
+        return self.stored.version
 
     @property
     def draft_id(self) -> str:
-        return self.meta.draft_id
-
-    @classmethod
-    def create(
-        cls,
-        *,
-        draft_id: str,
-        title: str,
-        author_id: str,
-        ref_score_id: str | None,
-        updated_at: datetime,
-        document: ScoreDocument,
-        version: int,
-    ) -> Self:
-        return cls(
-            meta=DraftMeta(
-                draft_id=draft_id,
-                title=title,
-                author_id=author_id,
-                ref_score_id=ref_score_id,
-                updated_at=updated_at,
-            ),
-            document=document,
-            version=version,
-        )
+        return self.stored.meta.draft_id
 
 
 class DraftStore(Protocol):
@@ -99,5 +55,5 @@ class DraftStore(Protocol):
         ...
 
     async def list_by_author(self, *, author_id: str) -> Sequence[DraftMeta]:
-        """Returns all drafts created by ``author_id``."""
+        """Returns all drafts created by ``author_id``, the latest updated first."""
         ...

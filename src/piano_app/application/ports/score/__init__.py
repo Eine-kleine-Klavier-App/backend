@@ -2,14 +2,16 @@ from .author_repository import AuthorProfile, AuthorRepository
 from .catalog_query import ScoreCatalogQuery, ScoreMetaItem
 from .collection_repository import CollectionPin, CollectionRepository, CollectionSummary
 from .document_codec import DocumentCodec, DocumentRecord
-from .draft_history import DraftHistory
-from .draft_store import (
+from .draft_history import DraftHistory, RecordStep
+from .draft_storage import (
     DraftMeta,
-    DraftStore,
+    DraftStorage,
     DraftStoreNotFoundError,
     DraftStoreVersionConflictError,
-    VersionedDraftDocument,
+    RecordChange,
+    StoredDraft,
 )
+from .draft_store import DraftStore, VersionedDraftDocument
 from .score_repository import (
     ScoreRepository,
     ScoreRepositoryNotFoundError,
@@ -27,9 +29,12 @@ __all__ = (
     "DocumentRecord",
     "DraftHistory",
     "DraftMeta",
+    "DraftStorage",
     "DraftStore",
     "DraftStoreNotFoundError",
     "DraftStoreVersionConflictError",
+    "RecordChange",
+    "RecordStep",
     "ScoreCatalogQuery",
     "ScoreMetaItem",
     "ScoreRepository",
@@ -37,5 +42,6 @@ __all__ = (
     "ScoreRepositoryVersionConflictError",
     "ScoreUoW",
     "ScoreUoWFactory",
+    "StoredDraft",
     "VersionedDraftDocument",
 )
