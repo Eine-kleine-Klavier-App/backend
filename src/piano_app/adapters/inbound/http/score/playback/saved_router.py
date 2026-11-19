@@ -1,13 +1,12 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Response
+from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse
 
 from piano_app.adapters.inbound.http.current_user import CurrentUserOptional
 from piano_app.application.use_cases.score.playback.saved_score import SavedScorePlaybackService
 
-from .requests import PlaybackRequest
-from .responses import playback_map_payload, playback_response, preview_map_payload
+from .responses import playback_map_payload, preview_carrier_payload
 
 
 def build_saved_playback_router(
@@ -26,28 +25,20 @@ def build_saved_playback_router(
             headers={"Cache-Control": "no-store"},
         )
 
-    @router.get("/preview/map", response_class=JSONResponse)
-    async def preview_map(
+    @router.get("/preview/carriers/{carrier_id}", response_class=JSONResponse)
+    async def preview_carrier(
         score_id: Annotated[str, Path()],
+        carrier_id: Annotated[str, Path()],
         viewer_id: Annotated[str | None, Depends(current_user_optional)],
     ) -> JSONResponse:
-        projections, version = await service.prepare_preview_map(
-            score_id=score_id, viewer_id=viewer_id
+        projection, version = await service.prepare_preview_carrier(
+            score_id=score_id, viewer_id=viewer_id, carrier_id=carrier_id
         )
         return JSONResponse(
-            content=preview_map_payload(projections=projections, version=version),
+            content=preview_carrier_payload(
+                projection=projection, carrier_id=carrier_id, version=version
+            ),
             headers={"Cache-Control": "no-store"},
         )
-
-    @router.post("", response_class=Response)
-    async def playback(
-        score_id: Annotated[str, Path()],
-        viewer_id: Annotated[str | None, Depends(current_user_optional)],
-        request: PlaybackRequest,
-    ) -> Response:
-        prepared = await service.prepare(
-            score_id=score_id, viewer_id=viewer_id, start=request.start.to_domain()
-        )
-        return await playback_response(prepared=prepared, version_header="X-Score-Version")
 
     return router
