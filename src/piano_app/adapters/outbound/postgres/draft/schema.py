@@ -4,10 +4,7 @@ from sqlalchemy import DateTime, ForeignKey, Integer, MetaData, String, UniqueCo
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from piano_app.adapters.outbound.shared.codec import (
-    SerializedScoreDocument,
-)
-from piano_app.application.ports.score import DraftMeta
+from piano_app.application.ports.score import DocumentRecord, DraftMeta, RecordChange
 
 
 class DraftBase(DeclarativeBase):
@@ -63,6 +60,7 @@ class DraftContentModel(DraftBase):
         ForeignKey("draft_meta.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    revisions: Mapped[list[SerializedScoreDocument]] = mapped_column(JSONB)
+    record: Mapped[DocumentRecord] = mapped_column(JSONB)
+    changes: Mapped[list[RecordChange]] = mapped_column(JSONB)
     cursor: Mapped[int] = mapped_column(Integer)
     version: Mapped[int] = mapped_column(Integer)

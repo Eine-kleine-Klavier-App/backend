@@ -955,7 +955,3 @@ class ScoreDocumentCodec:
             return deserializer.deserialize()
         except Exception as e:
             raise CodecError(reason=str(e)) from e
-
-
-# Kept until the Postgres draft schema stores a DocumentRecord (the draft storage change).
-type SerializedScoreDocument = DocumentRecord
