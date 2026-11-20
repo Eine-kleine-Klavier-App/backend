@@ -1,7 +1,7 @@
 import pytest
+from tests.fixtures.drafts import in_memory_history
 from tests.unit.domain.document_builders import score
 
-from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
 from piano_app.application.errors import ScoreEditRejectedError
 from piano_app.application.use_cases.score.edit.service import ScoreEditService
 from piano_app.domain.score.document.models.context import Slur
@@ -35,7 +35,7 @@ def _slur_of(document):
 
 async def _service_with_a_slur():
     document = score()
-    history = InMemoryDraftHistory()
+    history = in_memory_history()
     draft = await history.create(
         title="slur", author_id="owner", ref_score_id=None, document=document
     )
@@ -68,7 +68,7 @@ async def test_an_edge_move_and_the_height_it_freezes_are_one_gesture_and_one_un
     service, history, draft_id, document, slur = await _service_with_a_slur()
     height = PresentationTarget(entity_id=slur.id, reference=ReferencePoint.HEIGHT)
 
-    view = await service.apply(
+    state = await service.apply(
         draft_id=draft_id,
         actor_id="owner",
         intent=_move_end(document=document, slur=slur),
@@ -76,14 +76,14 @@ async def test_an_edge_move_and_the_height_it_freezes_are_one_gesture_and_one_un
     )
 
     assert _slur_of((await history.get(draft_id=draft_id)).document).end.position == _BEAT_TWO
-    assert view.jsonify()["presentation"]["vertical"] == [
+    assert state.view.jsonify()["presentation"]["vertical"] == [
         {"entity_id": slur.id, "reference": "height", "offset": 2.5}
     ]
 
     undone = await service.undo(draft_id=draft_id, actor_id="owner")
 
     assert _slur_of((await history.get(draft_id=draft_id)).document).end.position == _START
-    assert undone.jsonify()["presentation"]["vertical"] == []
+    assert undone.view.jsonify()["presentation"]["vertical"] == []
 
 
 async def test_a_refused_presentation_command_leaves_the_move_undone_too():

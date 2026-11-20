@@ -1,8 +1,8 @@
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from tests.fixtures.drafts import in_memory_history
 
-from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
 from piano_app.application.errors import DraftNotFoundError
 from piano_app.application.use_cases.score.draft.service import DraftService
 from piano_app.domain.score.document import ScoreDocument
@@ -10,12 +10,12 @@ from piano_app.domain.score.document import ScoreDocument
 
 @pytest.mark.parametrize("ref_score_id", [None, "saved-score"])
 async def test_owner_deletes_only_draft_without_touching_canon(ref_score_id: str | None) -> None:
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = await storage.create(
         title="Draft",
         author_id="owner",
         ref_score_id=ref_score_id,
-        document=ScoreDocument.create(voices=[], staffs=[], measures=[]),
+        document=ScoreDocument.create_fresh(voice_count=1, staff_count=1, measure_count=1),
     )
     factory = Mock()
     service = DraftService(storage=storage, score_uow_factory=factory)
@@ -27,12 +27,12 @@ async def test_owner_deletes_only_draft_without_touching_canon(ref_score_id: str
 
 
 async def test_foreign_and_missing_copies_are_hidden() -> None:
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = await storage.create(
         title="Private",
         author_id="owner",
         ref_score_id=None,
-        document=ScoreDocument.create(voices=[], staffs=[], measures=[]),
+        document=ScoreDocument.create_fresh(voice_count=1, staff_count=1, measure_count=1),
     )
     service = DraftService(storage=storage, score_uow_factory=Mock())
     for draft_id in [draft.draft_id, "missing"]:

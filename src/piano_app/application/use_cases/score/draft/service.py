@@ -8,6 +8,7 @@ from piano_app.application.ports.score import (
     VersionedDraftDocument,
 )
 from piano_app.application.use_cases.score.shared import (
+    ScoreState,
     ScoreView,
     require_accessible_draft,
     require_readable_score,
@@ -39,14 +40,19 @@ class DraftService:
         await require_accessible_draft(storage=self._storage, draft_id=draft_id, viewer_id=actor_id)
         await self._storage.delete(draft_id=draft_id)
 
-    async def get_document(self, *, draft_id: str, viewer_id: str) -> ScoreView:
+    async def get_document(self, *, draft_id: str, viewer_id: str) -> ScoreState:
         versioned: VersionedDraftDocument = await require_accessible_draft(
             storage=self._storage,
             draft_id=draft_id,
             viewer_id=viewer_id,
         )
 
-        return ScoreView(document=versioned.document)
+        return ScoreState(
+            document=versioned.document,
+            view=ScoreView(document=versioned.document),
+            version=versioned.version,
+            step=None,
+        )
 
     async def get_context_coverage(
         self, *, draft_id: str, viewer_id: str, context_id: str
