@@ -9,10 +9,16 @@ from piano_app.application.ports import DraftHistory
 from piano_app.application.ports.score import (
     DraftStoreNotFoundError,
     DraftStoreVersionConflictError,
+    RecordStep,
     VersionedDraftDocument,
 )
-from piano_app.application.use_cases.score.shared import ScoreView, require_accessible_draft
+from piano_app.application.use_cases.score.shared import (
+    ScoreState,
+    ScoreView,
+    require_accessible_draft,
+)
 from piano_app.domain.score.document import ScoreDocument
+from piano_app.domain.score.document.services.indexing import EntityIndex
 from piano_app.domain.score.document.services.mutation import MutationCompiler, MutationEngine
 from piano_app.domain.score.document.services.mutation.compiler import EditIntent
 from piano_app.domain.score.document.services.mutation.engine.log import MutationLog
@@ -53,27 +59,36 @@ class ScoreEditService:
         actor_id: str,
         intent: EditIntent,
         presentation: Sequence[PresentationCommand] = (),
-    ) -> ScoreView:
+    ) -> ScoreState:
         """Runs one edit intent against the draft as one gesture and commits it. The presentation
         commands, if any, are part of the gesture: they are applied in the same transaction, so a
         refusal of either leaves the draft as it was and one undo takes both back."""
         versioned: VersionedDraftDocument = await self._load(draft_id=draft_id, actor_id=actor_id)
         document: ScoreDocument = versioned.document
+        entities: EntityIndex = EntityIndex(document=document)
         try:
             requests: Sequence[MutationRequest] = self._compiler.compile(
                 document=document,
                 intent=intent,
+                entities=entities,
             )
-            self._run(document=document, requests=requests, presentation=presentation)
+            self._run(
+                document=document,
+                entities=entities,
+                requests=requests,
+                presentation=presentation,
+            )
         except MutationRejectedError as error:
             raise ScoreEditRejectedError(reason=error.reason) from error
 
-        await self._commit(versioned=versioned)
-        return ScoreView(document=document)
+        step: RecordStep = await self._commit(versioned=versioned)
+        return ScoreState(
+            document=document, view=ScoreView(document=document), version=step.to_version, step=step
+        )
 
     async def apply_presentation(
         self, *, draft_id: str, actor_id: str, commands: Sequence[PresentationCommand]
-    ) -> ScoreView:
+    ) -> ScoreState:
         versioned = await self._load(draft_id=draft_id, actor_id=actor_id)
         log = MutationLog()
         try:
@@ -81,23 +96,31 @@ class ScoreEditService:
         except ValueError as error:
             log.rollback()
             raise ScoreEditRejectedError(reason=str(error)) from error
-        if log.has_changes:
+        step: RecordStep = (
             await self._commit(versioned=versioned)
-        return ScoreView(document=versioned.document)
+            if log.has_changes
+            else self._unchanged(versioned=versioned)
+        )
+        return ScoreState(
+            document=versioned.document,
+            view=ScoreView(document=versioned.document),
+            version=step.to_version,
+            step=step,
+        )
 
     async def undo(
         self,
         *,
         draft_id: str,
         actor_id: str,
-    ) -> ScoreView:
+    ) -> ScoreState:
         # An empty history is a successful no-op, not an error: the request was
         # understood and the draft is left in a valid state.
         # Return the current view either way
         versioned: VersionedDraftDocument = await self._load(draft_id=draft_id, actor_id=actor_id)
 
         try:
-            await self._drafts_history.undo(draft=versioned)
+            step: RecordStep | None = await self._drafts_history.undo(draft=versioned)
         except DraftStoreNotFoundError as error:
             raise DraftNotFoundError(draft_id=error.draft_id) from error
         except DraftStoreVersionConflictError as error:
@@ -106,18 +129,23 @@ class ScoreEditService:
             ) from error
 
         current: VersionedDraftDocument = await self._load(draft_id=draft_id, actor_id=actor_id)
-        return ScoreView(document=current.document)
+        return ScoreState(
+            document=current.document,
+            view=ScoreView(document=current.document),
+            version=current.version,
+            step=step if step is not None else self._unchanged(versioned=versioned),
+        )
 
     async def redo(
         self,
         *,
         draft_id: str,
         actor_id: str,
-    ) -> ScoreView:
+    ) -> ScoreState:
         versioned: VersionedDraftDocument = await self._load(draft_id=draft_id, actor_id=actor_id)
 
         try:
-            await self._drafts_history.redo(draft=versioned)
+            step = await self._drafts_history.redo(draft=versioned)
         except DraftStoreNotFoundError as error:
             raise DraftNotFoundError(draft_id=error.draft_id) from error
         except DraftStoreVersionConflictError as error:
@@ -126,20 +154,34 @@ class ScoreEditService:
             ) from error
 
         current: VersionedDraftDocument = await self._load(draft_id=draft_id, actor_id=actor_id)
-        return ScoreView(document=current.document)
+        return ScoreState(
+            document=current.document,
+            view=ScoreView(document=current.document),
+            version=current.version,
+            step=step if step is not None else self._unchanged(versioned=versioned),
+        )
 
     async def _load(self, *, draft_id: str, actor_id: str) -> VersionedDraftDocument:
         return await require_accessible_draft(
             storage=self._drafts_history, draft_id=draft_id, viewer_id=actor_id
         )
 
+    def _unchanged(self, *, versioned: VersionedDraftDocument) -> RecordStep:
+        """The step of a request that changed nothing: the draft stays at its version."""
+        return RecordStep(
+            before=versioned.stored.record,
+            change={},
+            from_version=versioned.version,
+            to_version=versioned.version,
+        )
+
     async def _commit(
         self,
         *,
         versioned: VersionedDraftDocument,
-    ) -> None:
+    ) -> RecordStep:
         try:
-            await self._drafts_history.commit(draft=versioned)
+            return await self._drafts_history.commit(draft=versioned)
         except DraftStoreNotFoundError as error:
             raise DraftNotFoundError(draft_id=error.draft_id) from error
         except DraftStoreVersionConflictError as error:
@@ -152,10 +194,11 @@ class ScoreEditService:
         self,
         *,
         document: ScoreDocument,
+        entities: EntityIndex,
         requests: Sequence[MutationRequest],
         presentation: Sequence[PresentationCommand] = (),
     ) -> None:
-        with self._engine.transaction(document=document) as transaction:
+        with self._engine.transaction(document=document, entities=entities) as transaction:
             transaction.run(requests=requests)
             if transaction.log.has_changes:
                 document.renew_music_revision(sink=transaction.log)

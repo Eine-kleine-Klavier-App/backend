@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, Mock
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from tests.fixtures.drafts import in_memory_history
 from tests.unit.application.test_score_visibility import _meta, _service
 from tests.unit.domain.document_builders import anchor, note, score
 
@@ -14,7 +15,6 @@ from piano_app.adapters.inbound.http import (
     register_exception_handlers,
 )
 from piano_app.adapters.inbound.http.score.catalog.router import build_scores_router
-from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
 from piano_app.application.errors import ContextNotFoundError
 from piano_app.application.use_cases.auth import AuthService
 from piano_app.application.use_cases.score.catalog.service import ScoreCatalogService
@@ -32,7 +32,7 @@ async def test_the_coverage_of_a_context_is_its_carriers_and_notes_as_ids() -> N
         start=anchor(document, Fraction(1, 1) + Fraction(1, 4)),
         end=anchor(document, Fraction(1) + Fraction(3, 4)),
     )
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = await storage.create(
         title="coverage", author_id="owner", ref_score_id=None, document=document
     )
@@ -47,7 +47,7 @@ async def test_the_coverage_of_a_context_is_its_carriers_and_notes_as_ids() -> N
 
 
 async def test_a_context_the_draft_does_not_have_is_refused() -> None:
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = await storage.create(
         title="coverage", author_id="owner", ref_score_id=None, document=score()
     )
@@ -92,7 +92,7 @@ async def test_saved_context_coverage_http_matches_draft_and_is_read_only(
         response = await client.get(f"/scores/score/contexts/{pedal.id}/coverage")
         assert response.status_code == (200 if allowed else 404)
         if allowed:
-            storage = InMemoryDraftHistory()
+            storage = in_memory_history()
             draft = await storage.create(
                 title="copy", author_id="owner", ref_score_id="score", document=document
             )
