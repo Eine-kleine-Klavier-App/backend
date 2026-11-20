@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from fractions import Fraction
 
 from piano_app.domain.score.document import ScoreDocument
@@ -43,6 +44,27 @@ from piano_app.domain.score.document.services.presentation.capabilities import (
     presentation_capabilities,
 )
 
+_PRESENTATION_KINDS: tuple[str, ...] = (
+    "vertical",
+    "endpoints",
+    "directions",
+    "horizontal",
+    "horizontal_endpoints",
+)
+
+
+@dataclass(slots=True)
+class _MeasureShare:
+    """The entities of the view kept with one measure when the view is cut by measure."""
+
+    containers: list[RhythmicContainer] = field(default_factory=list)
+    carriers: list[Carrier] = field(default_factory=list)
+    items: list[MusicalItem] = field(default_factory=list)
+    relations: list[Relation] = field(default_factory=list)
+    contexts: list[Context] = field(default_factory=list)
+    # the containers of each voice that start in the measure, in the order of the voice
+    roots: dict[str, list[str]] = field(default_factory=dict)
+
 
 class ScoreView:
     def __init__(self, *, document: ScoreDocument) -> None:
@@ -65,26 +87,56 @@ class ScoreView:
         self._items: list[MusicalItem] = []
         self._relations: dict[str, Relation] = {}
 
+        # the measure each entity is kept with when the view is cut by measure: a leaf, its
+        # carriers and notes and its grace notes with the measure of its anchor, a group with the
+        # measure of its first leaf, a tie or glissando with its first note, a beam with its first
+        # carrier, a context with the measure it starts in
+        self._homes: dict[str, str] = {}
         for voice in self._voices:
             for container in voice.children:
                 self._collect(container=container)
+
+        for relation in self._relations.values():
+            if isinstance(relation, Beam):
+                self._homes[relation.id] = self._homes[relation.members[0].id]
+            elif isinstance(relation, Tie | Glissando):
+                self._homes[relation.id] = self._homes[relation.start.id]
+            else:
+                raise TypeError(f"Unsupported relation type: {type(relation).__name__}.")
+
+        for context in self._contexts:
+            self._homes[context.id] = context.start.measure.id
+
+        self._shares: dict[str, _MeasureShare] = {
+            measure.id: _MeasureShare() for measure in self._measures
+        }
+        for container in self._rhythmic_containers:
+            self._shares[self._homes[container.id]].containers.append(container)
+        for carrier in self._carriers:
+            self._shares[self._homes[carrier.id]].carriers.append(carrier)
+        for item in self._items:
+            self._shares[self._homes[item.id]].items.append(item)
+        for relation in self._relations.values():
+            self._shares[self._homes[relation.id]].relations.append(relation)
+        for context in self._contexts:
+            self._shares[self._homes[context.id]].contexts.append(context)
+        for voice in self._voices:
+            for container in voice.children:
+                roots: dict[str, list[str]] = self._shares[self._homes[container.id]].roots
+                roots.setdefault(voice.id, []).append(container.id)
+
+        # the placement rows by the measure of their entity (None: an entity of no one measure),
+        # read the first time the view is cut by measure
+        self._presentation_by_home: dict[str | None, dict[str, list[dict[str, object]]]] | None = (
+            None
+        )
+        self._capabilities_by_home: dict[str | None, list[dict[str, object]]] | None = None
 
     def jsonify(self) -> dict[str, object]:
         return {
             "music_revision": self._document.music_revision,
             "presentation": self._presentation_json(),
-            "presentation_capabilities": [
-                {
-                    "entity_id": target.entity_id,
-                    "reference": target.reference.value,
-                    "vertical": capability.vertical,
-                    "endpoints": capability.endpoints,
-                    "directed": capability.directed,
-                    "horizontal": capability.horizontal,
-                    "horizontal_endpoints": capability.horizontal_endpoints,
-                }
-                for target, capability in presentation_capabilities(document=self._document).items()
-            ],
+            "presentation_capabilities": self._capabilities_json(),
             "insertion_spaces": self._insertion_spaces_json(),
             "staffs": [self._staff_json(staff=staff) for staff in self._staffs],
             "measures": [self._measure_json(measure=measure) for measure in self._measures],
@@ -101,7 +153,88 @@ class ScoreView:
             "contexts": [self._context_json(context=context) for context in self._contexts],
         }
 
-    def _presentation_json(self) -> dict[str, object]:
+    def header_json(self) -> dict[str, object]:
+        """What belongs to no one measure: the revision, the staffs, the measures in their order,
+        the voices and the placements of entities kept with no measure. With the shares of all
+        measures it is the whole view."""
+        return {
+            "music_revision": self._document.music_revision,
+            "staffs": [self._staff_json(staff=staff) for staff in self._staffs],
+            "measure_ids": [measure.id for measure in self._measures],
+            "voice_ids": [voice.id for voice in self._voices],
+            "presentation": self._presentation_of(home=None),
+            "presentation_capabilities": self._capabilities_of(home=None),
+        }
+
+    def home_of(self, *, entity_id: str) -> str | None:
+        """The id of the measure an entity of the view is kept with; None for an entity of no
+        one measure (a staff, a voice) or one the view does not have."""
+        return self._homes.get(entity_id)
+
+    def measure_json(self, *, measure: Measure) -> dict[str, object]:
+        """The share of one measure in the view: the rows of the entities kept with it, built
+        for them alone, in the order of the whole view."""
+        share: _MeasureShare = self._shares[measure.id]
+        return {
+            "measure": self._measure_json(measure=measure),
+            "voice_roots": [
+                {"voice_id": voice_id, "rhythmic_container_ids": container_ids}
+                for voice_id, container_ids in share.roots.items()
+            ],
+            "rhythmic_containers": [
+                self._rhythmic_container_json(container=container) for container in share.containers
+            ],
+            "carriers": [self._carrier_json(carrier=carrier) for carrier in share.carriers],
+            "items": [self._item_json(item=item) for item in share.items],
+            "relations": [self._relation_json(relation=relation) for relation in share.relations],
+            "contexts": [self._context_json(context=context) for context in share.contexts],
+            "insertion_spaces": [
+                self._insertion_space_json(group=container)
+                for container in share.containers
+                if isinstance(container, GroupRhythmicContainer)
+            ],
+            "presentation": self._presentation_of(home=measure.id),
+            "presentation_capabilities": self._capabilities_of(home=measure.id),
+        }
+
+    def _presentation_of(self, *, home: str | None) -> dict[str, list[dict[str, object]]]:
+        if self._presentation_by_home is None:
+            self._presentation_by_home = {}
+            for kind, rows in self._presentation_json().items():
+                for row in rows:
+                    by_kind = self._presentation_by_home.setdefault(
+                        self._homes.get(str(row["entity_id"])), {}
+                    )
+                    by_kind.setdefault(kind, []).append(row)
+
+        found: dict[str, list[dict[str, object]]] = self._presentation_by_home.get(home, {})
+        return {kind: found.get(kind, []) for kind in _PRESENTATION_KINDS}
+
+    def _capabilities_of(self, *, home: str | None) -> list[dict[str, object]]:
+        if self._capabilities_by_home is None:
+            self._capabilities_by_home = {}
+            for row in self._capabilities_json():
+                self._capabilities_by_home.setdefault(
+                    self._homes.get(str(row["entity_id"])), []
+                ).append(row)
+
+        return self._capabilities_by_home.get(home, [])
+
+    def _capabilities_json(self) -> list[dict[str, object]]:
+        return [
+            {
+                "entity_id": target.entity_id,
+                "reference": target.reference.value,
+                "vertical": capability.vertical,
+                "endpoints": capability.endpoints,
+                "directed": capability.directed,
+                "horizontal": capability.horizontal,
+                "horizontal_endpoints": capability.horizontal_endpoints,
+            }
+            for target, capability in presentation_capabilities(document=self._document).items()
+        ]
+
+    def _presentation_json(self) -> dict[str, list[dict[str, object]]]:
         presentation = self._document.presentation
         return {
             "vertical": [
@@ -156,22 +289,29 @@ class ScoreView:
                 container = pending.pop(0)
                 if not isinstance(container, GroupRhythmicContainer):
                     continue
-                frame = self._geometry.of_group(group=container)
-                transform = conversion(source=frame, target=self._geometry.root)
-                result.append(
-                    {
-                        "id": container.id,
-                        "voice_id": voice.id,
-                        "parent_id": container.parent.id
-                        if isinstance(container.parent, GroupRhythmicContainer)
-                        else None,
-                        "start": self._fraction_json(value=transform.offset),
-                        "scale": self._fraction_json(value=transform.scale),
-                        "extent": self._fraction_json(value=frame.extent),
-                    }
-                )
+                result.append(self._insertion_space_json(group=container))
                 pending[0:0] = container.children
         return result
+
+    def _insertion_space_json(self, *, group: GroupRhythmicContainer) -> dict[str, object]:
+        owner: object = group.parent
+        while isinstance(owner, GroupRhythmicContainer):
+            owner = owner.parent
+        if not isinstance(owner, Voice):
+            raise RuntimeError(f"Cannot build score view: group {group.id!r} is in no voice.")
+
+        frame = self._geometry.of_group(group=group)
+        transform = conversion(source=frame, target=self._geometry.root)
+        return {
+            "id": group.id,
+            "voice_id": owner.id,
+            "parent_id": group.parent.id
+            if isinstance(group.parent, GroupRhythmicContainer)
+            else None,
+            "start": self._fraction_json(value=transform.offset),
+            "scale": self._fraction_json(value=transform.scale),
+            "extent": self._fraction_json(value=frame.extent),
+        }
 
     def _collect(self, *, container: RhythmicContainer) -> None:
         self._rhythmic_containers.append(container)
@@ -180,10 +320,17 @@ class ScoreView:
             for child in container.children:
                 self._collect(container=child)
 
+            self._homes[container.id] = self._homes[container.children[0].id]
+
         elif isinstance(container, LeafRhythmicContainer):
+            home: str = container.anchor.measure.id
+            self._homes[container.id] = home
             carrier: Carrier = self._carrier_of(leaf=container)
             self._carriers.append(carrier)
-            self._items.extend(self._items_of(carrier=carrier))
+            self._homes[carrier.id] = home
+            for item in self._items_of(carrier=carrier):
+                self._items.append(item)
+                self._homes[item.id] = home
 
             for relation in self._relations_of(carrier=carrier):
                 self._relations.setdefault(relation.id, relation)
@@ -192,10 +339,15 @@ class ScoreView:
                 if group is None:
                     continue
 
+                self._homes[group.id] = home
                 for grace in group.grace_items:
+                    self._homes[grace.id] = home
                     grace_carrier: Carrier = self._grace_carrier_of(grace=grace)
                     self._carriers.append(grace_carrier)
-                    self._items.extend(self._items_of(carrier=grace_carrier))
+                    self._homes[grace_carrier.id] = home
+                    for grace_item in self._items_of(carrier=grace_carrier):
+                        self._items.append(grace_item)
+                        self._homes[grace_item.id] = home
 
                     for relation in self._relations_of(carrier=grace_carrier):
                         self._relations.setdefault(relation.id, relation)
