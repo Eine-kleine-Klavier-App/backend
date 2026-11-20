@@ -1,3 +1,3 @@
-from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
+from piano_app.adapters.outbound.in_memory.draft_storage import InMemoryDraftStorage
 
-__all__ = ("InMemoryDraftHistory",)
+__all__ = ("InMemoryDraftStorage",)
