@@ -6,13 +6,15 @@ from unittest.mock import Mock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.fixtures.drafts import in_memory_history
+from tests.fixtures.sync import ClientView
 from tests.unit.domain.pitch.test_accidental_inference import key
 
 from piano_app.adapters.inbound.http.current_user import CurrentUser
 from piano_app.adapters.inbound.http.errors import register_exception_handlers
 from piano_app.adapters.inbound.http.score.edit.router import build_edit_router
-from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
 from piano_app.application.use_cases.score.edit.service import ScoreEditService
+from piano_app.application.use_cases.score.shared.draft_history import DraftHistoryService
 from piano_app.domain.score.document import ScoreDocument
 from piano_app.domain.score.document.models.notation import Accidental
 from piano_app.domain.score.document.services.mutation import build_compiler, build_engine
@@ -21,16 +23,17 @@ from piano_app.domain.score.document.services.mutation import build_compiler, bu
 @dataclass
 class Scene:
     app: FastAPI
-    storage: InMemoryDraftHistory
+    storage: DraftHistoryService
     draft_id: str
     document: ScoreDocument
+    held: ClientView
 
 
 @pytest.fixture
 def scene() -> Scene:
     document = ScoreDocument.create_fresh(staff_count=2, voice_count=3, measure_count=3)
     key(document, Fraction(0), (Accidental.SHARP,) + (Accidental.NATURAL,) * 6)
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = asyncio.run(
         storage.create(title="inference", author_id="owner", ref_score_id=None, document=document)
     )
@@ -46,7 +49,8 @@ def scene() -> Scene:
             current_user=CurrentUser(service=auth),
         )
     )
-    return Scene(app, storage, draft.draft_id, document)
+    held = ClientView(storage=storage, draft_id=draft.draft_id)
+    return Scene(app, storage, draft.draft_id, document, held)
 
 
 def body(scene: Scene, at: Fraction, **changes: object) -> dict[str, object]:
@@ -73,7 +77,7 @@ def post(
         json=payload,
     )
     assert response.status_code == 200, response.text
-    return response.json()["document"]
+    return scene.held.apply(sync=response.json()["sync"])
 
 
 def notes_at(view: dict, at: Fraction, *, voice: int = 0) -> list[dict]:

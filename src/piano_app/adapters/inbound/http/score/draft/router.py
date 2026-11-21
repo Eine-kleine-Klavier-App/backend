@@ -7,7 +7,7 @@ from piano_app.adapters.inbound.http.current_user import CurrentUser
 from piano_app.application.ports.score import DraftMeta
 from piano_app.application.use_cases.score import DraftService
 from piano_app.application.use_cases.score.draft.service import ContextCoverage, CreatedDraft
-from piano_app.application.use_cases.score.shared import ScoreView
+from piano_app.application.use_cases.score.shared import ScoreState
 
 from .responses import (
     ContextCoverageResponse,
@@ -26,8 +26,8 @@ def build_draft_router(*, service: DraftService, current_user: CurrentUser) -> A
         draft_id: Annotated[str, Path(description="The draft ID")],
         viewer_id: Annotated[str, Depends(current_user)],
     ) -> GetDraftResponse:
-        view: ScoreView = await service.get_document(draft_id=draft_id, viewer_id=viewer_id)
-        return GetDraftResponse.from_view(view)
+        state: ScoreState = await service.get_document(draft_id=draft_id, viewer_id=viewer_id)
+        return GetDraftResponse.from_state(state)
 
     @router.get(path="/{draft_id}/contexts/{context_id}/coverage", status_code=200)
     async def get_context_coverage(

@@ -5,12 +5,12 @@ from unittest.mock import Mock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.fixtures.drafts import in_memory_history
 from tests.unit.domain.document_builders import anchor, note, score
 
 from piano_app.adapters.inbound.http.current_user import CurrentUser
 from piano_app.adapters.inbound.http.errors import register_exception_handlers
 from piano_app.adapters.inbound.http.score.draft.router import build_draft_router
-from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
 from piano_app.application.use_cases.score.draft.service import DraftService
 from piano_app.domain.score.document.models.context import Slur
 from piano_app.domain.score.document.models.material import Note
@@ -27,7 +27,7 @@ def _app_with_a_slur() -> tuple[TestClient, str, str, list[Note]]:
         end=anchor(document, Fraction(1) + Fraction(3, 4)),
         voices=[document.voices[0]],
     )
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = asyncio.run(
         storage.create(title="coverage", author_id="owner", ref_score_id=None, document=document)
     )

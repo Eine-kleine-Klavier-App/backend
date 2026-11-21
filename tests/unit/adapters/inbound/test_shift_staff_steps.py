@@ -5,12 +5,13 @@ from unittest.mock import Mock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.fixtures.drafts import in_memory_history
+from tests.fixtures.sync import ClientView
 from tests.unit.domain.document_builders import note, score
 
 from piano_app.adapters.inbound.http.current_user import CurrentUser
 from piano_app.adapters.inbound.http.errors import register_exception_handlers
 from piano_app.adapters.inbound.http.score.edit.router import build_edit_router
-from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
 from piano_app.application.use_cases.score.edit.service import ScoreEditService
 from piano_app.domain.score.document.models.material import Note
 from piano_app.domain.score.document.models.notation import Accidental
@@ -25,7 +26,7 @@ def test_http_relative_group_shift_and_history(bad: str | None) -> None:
     a = note(document, Fraction(0), step=-2)
     b = note(document, Fraction(1, 4), step=2)
     build_engine().process(document=document, requests=[])
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = asyncio.run(
         storage.create(title="shift", author_id="owner", ref_score_id=None, document=document)
     )
@@ -50,6 +51,7 @@ def test_http_relative_group_shift_and_history(bad: str | None) -> None:
         body["note_ids"] = [a.id, "missing"]
     elif bad == "carrier":
         body["note_ids"] = [a.note_carrier.id]
+    held = ClientView(storage=storage, draft_id=draft.draft_id)
     with TestClient(app) as client:
         path = f"/drafts/{draft.draft_id}/edit/pitches/shift"
         response = client.post(path, headers={"Authorization": "Bearer owner"}, json=body)
@@ -60,7 +62,7 @@ def test_http_relative_group_shift_and_history(bad: str | None) -> None:
         else:
             steps = {
                 item["id"]: item["staff_step"]
-                for item in response.json()["document"]["items"]
+                for item in held.apply(sync=response.json()["sync"])["items"]
                 if item["kind"] == "note"
             }
             assert (steps[a.id], steps[b.id]) == (-1, 3)
@@ -68,7 +70,7 @@ def test_http_relative_group_shift_and_history(bad: str | None) -> None:
             assert again.status_code == 200
             steps = {
                 item["id"]: item["staff_step"]
-                for item in again.json()["document"]["items"]
+                for item in held.apply(sync=again.json()["sync"])["items"]
                 if item["kind"] == "note"
             }
             assert (steps[a.id], steps[b.id]) == (0, 4)
@@ -106,7 +108,7 @@ def test_http_single_note_skips_unison_with_one_history_entry(delta, blocked):
             accidental=Accidental.NATURAL,
         )
     build_engine().process(document=document, requests=[])
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = asyncio.run(
         storage.create(title="skip unison", author_id="owner", ref_score_id=None, document=document)
     )
@@ -116,6 +118,7 @@ def test_http_single_note_skips_unison_with_one_history_entry(delta, blocked):
     app = FastAPI()
     register_exception_handlers(app=app)
     app.include_router(build_edit_router(service=service, current_user=CurrentUser(service=auth)))
+    held = ClientView(storage=storage, draft_id=draft.draft_id)
     with TestClient(app) as client:
         response = client.post(
             f"/drafts/{draft.draft_id}/edit/pitches/shift",
@@ -128,7 +131,7 @@ def test_http_single_note_skips_unison_with_one_history_entry(delta, blocked):
     if not blocked:
         steps = {
             item["id"]: item["staff_step"]
-            for item in response.json()["document"]["items"]
+            for item in held.apply(sync=response.json()["sync"])["items"]
             if item["kind"] == "note"
         }
         assert steps[moving.id] == -2 + 2 * delta
