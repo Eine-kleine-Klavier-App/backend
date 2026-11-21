@@ -20,6 +20,7 @@ dependencies = [
     "google-auth[requests]>=2.40",
     "PyJWT>=2.10",
     "python-dotenv>=1.2",
+    "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]
@@ -32,6 +33,7 @@ dev = [
     "httpx>=0.28",
     "anyio",
     "fakeredis>=2.26",
+    "types-defusedxml>=0.7",
     "lupa>=2.0",
 ]
 
