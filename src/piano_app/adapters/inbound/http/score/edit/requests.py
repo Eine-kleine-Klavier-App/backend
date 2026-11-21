@@ -1,3 +1,4 @@
+from fractions import Fraction
 from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -89,6 +90,9 @@ from piano_app.domain.score.document.services.mutation.compiler import (
     ToggleArticulationIntent,
     VoltaFragmentIntent,
 )
+from piano_app.domain.score.document.services.mutation.compiler.intents.create import (
+    DEFAULT_BEAM_SHARE,
+)
 from piano_app.domain.score.document.services.presentation import (
     PresentationCommand,
     SetDirection,
@@ -105,6 +109,26 @@ class PositionModel(BaseModel):
 
     def to_domain(self) -> MeasurePosition:
         return MeasurePosition.of(numerator=self.numerator, denominator=self.denominator)
+
+
+class FractionModel(BaseModel):
+    """A part of a whole: from nothing up to the whole."""
+
+    numerator: int = Field(ge=0)
+    denominator: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _check_proper(self) -> Self:
+        if self.numerator > self.denominator:
+            raise ValueError("A part of a whole cannot exceed the whole.")
+        return self
+
+    @classmethod
+    def of(cls, fraction: Fraction) -> Self:
+        return cls(numerator=fraction.numerator, denominator=fraction.denominator)
+
+    def to_domain(self) -> Fraction:
+        return Fraction(self.numerator, self.denominator)
 
 
 class RhythmicValueModel(BaseModel):
@@ -206,6 +230,7 @@ class InsertNoteRequest(BaseModel):
     staff_step: int
     accidental: Accidental | None = None
     fingering: Fingering = Fingering.NONE
+    beam_share: FractionModel = Field(default_factory=lambda: FractionModel.of(DEFAULT_BEAM_SHARE))
 
     def to_intent(self) -> InsertNoteIntent:
         return InsertNoteIntent(
@@ -217,6 +242,7 @@ class InsertNoteRequest(BaseModel):
             staff_step=self.staff_step,
             accidental=self.accidental,
             fingering=self.fingering,
+            beam_share=self.beam_share.to_domain(),
         )
 
 

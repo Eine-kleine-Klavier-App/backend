@@ -52,12 +52,13 @@ def test_http_split_uses_real_engine_history_and_preserves_carriers() -> None:
 
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+    from tests.fixtures.drafts import in_memory_history
+    from tests.fixtures.sync import ClientView
     from tests.unit.domain.scene import build_score, note, rest
 
     from piano_app.adapters.inbound.http.current_user import CurrentUser
     from piano_app.adapters.inbound.http.errors import register_exception_handlers
     from piano_app.adapters.inbound.http.score.edit.router import build_edit_router
-    from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
     from piano_app.application.use_cases.score.edit.service import ScoreEditService
     from piano_app.domain.score.document.models.notation import RhythmicValue
     from piano_app.domain.score.document.models.relations import Beam
@@ -86,7 +87,7 @@ def test_http_split_uses_real_engine_history_and_preserves_carriers() -> None:
         if i < 4:
             members.append(leaf.carrier)
     beam = Beam.create(carriers=members)
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = asyncio.run(
         storage.create(title="split", author_id="owner", ref_score_id=None, document=score.document)
     )
@@ -96,6 +97,7 @@ def test_http_split_uses_real_engine_history_and_preserves_carriers() -> None:
     app = FastAPI()
     register_exception_handlers(app=app)
     app.include_router(build_edit_router(service=service, current_user=CurrentUser(service=auth)))
+    held = ClientView(storage=storage, draft_id=draft.draft_id)
     with TestClient(app) as client:
         path = f"/drafts/{draft.draft_id}/edit/beams/split"
         headers = {"Authorization": "Bearer owner"}
@@ -107,7 +109,7 @@ def test_http_split_uses_real_engine_history_and_preserves_carriers() -> None:
             path, headers=headers, json={"beam_id": beam.id, "before_carrier_id": members[2].id}
         )
         assert response.status_code == 200, response.text
-        view = response.json()["document"]
+        view = held.apply(sync=response.json()["sync"])
         beams = [relation for relation in view["relations"] if relation["kind"] == "beam"]
         assert [relation["carrier_ids"] for relation in beams] == [
             [m.id for m in members[:2]],

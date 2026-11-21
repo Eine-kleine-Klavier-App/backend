@@ -4,7 +4,9 @@ from pydantic import BaseModel, Field
 
 from piano_app.application.ports.score import DraftMeta
 from piano_app.application.use_cases.score.draft.service import ContextCoverage, CreatedDraft
-from piano_app.application.use_cases.score.shared import ScoreView
+from piano_app.application.use_cases.score.shared import ScoreState, state_sync
+
+from ..sync import measure_sync_payload
 
 
 class DraftCreatedResponse(BaseModel):
@@ -17,11 +19,11 @@ class DraftCreatedResponse(BaseModel):
 
 
 class GetDraftResponse(BaseModel):
-    document: dict[str, object] = Field(description="The draft's document view")
+    sync: dict[str, object] = Field(description="The draft by measure")
 
     @classmethod
-    def from_view(cls, view: ScoreView) -> GetDraftResponse:
-        return cls(document=view.jsonify())
+    def from_state(cls, state: ScoreState) -> GetDraftResponse:
+        return cls(sync=measure_sync_payload(sync=state_sync(state=state)))
 
 
 class ContextCoverageResponse(BaseModel):

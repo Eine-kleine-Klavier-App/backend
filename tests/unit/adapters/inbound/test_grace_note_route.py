@@ -6,12 +6,13 @@ from unittest.mock import Mock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.fixtures.drafts import in_memory_history
+from tests.fixtures.sync import ClientView
 from tests.unit.domain.pitch.test_accidental_inference import key
 
 from piano_app.adapters.inbound.http.current_user import CurrentUser
 from piano_app.adapters.inbound.http.errors import register_exception_handlers
 from piano_app.adapters.inbound.http.score.edit.router import build_edit_router
-from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
 from piano_app.application.use_cases.score.edit.service import ScoreEditService
 from piano_app.domain.score.document import ScoreDocument
 from piano_app.domain.score.document.models.notation import Accidental
@@ -27,13 +28,14 @@ class Scene:
     app: FastAPI
     draft_id: str
     document: ScoreDocument
+    held: ClientView
 
 
 @pytest.fixture
 def scene() -> Scene:
     document = ScoreDocument.create_fresh(staff_count=2, voice_count=2, measure_count=2)
     key(document, Fraction(0), (Accidental.SHARP,) + (Accidental.NATURAL,) * 6)
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = asyncio.run(
         storage.create(title="graces", author_id="owner", ref_score_id=None, document=document)
     )
@@ -49,7 +51,8 @@ def scene() -> Scene:
             current_user=CurrentUser(service=auth),
         )
     )
-    return Scene(app, draft.draft_id, document)
+    held = ClientView(storage=storage, draft_id=draft.draft_id)
+    return Scene(app, draft.draft_id, document, held)
 
 
 def post(
@@ -61,7 +64,9 @@ def post(
         json=payload,
     )
     assert response.status_code == status, response.text
-    return response.json()
+    if status != 200:
+        return response.json()
+    return scene.held.apply(sync=response.json()["sync"])
 
 
 def insert_host(client: TestClient, scene: Scene, accidental: str) -> str:
@@ -79,7 +84,7 @@ def insert_host(client: TestClient, scene: Scene, accidental: str) -> str:
             "staff_step": _STEP,
             "accidental": accidental,
         },
-    )["document"]
+    )
     return next(row["id"] for row in view["carriers"] if row["kind"] == "chord")
 
 
@@ -114,7 +119,7 @@ def test_a_grace_note_is_added_and_the_view_shows_it_and_the_time_it_takes(scene
         host = insert_host(client, scene, "natural")
         view = post(
             client, scene, "grace-notes", grace(scene, host, "before", value=8, accidental="sharp")
-        )["document"]
+        )
 
     leaf = leaf_of(view, host)
     assert leaf["grace_after"] is None
@@ -133,7 +138,7 @@ def test_a_sign_left_out_is_read_from_the_cell_of_the_grace_note(scene: Scene) -
     with TestClient(scene.app) as client:
         host = insert_host(client, scene, "natural")
         post(client, scene, "grace-notes", grace(scene, host, "before"))
-        view = post(client, scene, "grace-notes", grace(scene, host, "after"))["document"]
+        view = post(client, scene, "grace-notes", grace(scene, host, "after"))
 
     leaf = leaf_of(view, host)
     (before,) = grace_notes(view, leaf["grace_before"])
@@ -149,7 +154,7 @@ def test_grace_notes_that_would_take_all_the_time_of_their_note_are_refused(scen
         post(client, scene, "grace-notes", grace(scene, host, "before", value=8), status=422)
 
         # the refused one left nothing behind
-        view = post(client, scene, "grace-notes", grace(scene, host, "after", value=32))["document"]
+        view = post(client, scene, "grace-notes", grace(scene, host, "after", value=32))
 
     leaf = leaf_of(view, host)
     assert len(leaf["grace_before"]["items"]) == 1
@@ -159,10 +164,10 @@ def test_grace_notes_that_would_take_all_the_time_of_their_note_are_refused(scen
 def test_removing_the_last_grace_note_takes_its_group_away(scene: Scene) -> None:
     with TestClient(scene.app) as client:
         host = insert_host(client, scene, "natural")
-        view = post(client, scene, "grace-notes", grace(scene, host, "before"))["document"]
+        view = post(client, scene, "grace-notes", grace(scene, host, "before"))
         (written,) = grace_notes(view, leaf_of(view, host)["grace_before"])
 
-        view = post(client, scene, "grace-note-removals", {"note_id": written["id"]})["document"]
+        view = post(client, scene, "grace-note-removals", {"note_id": written["id"]})
 
     leaf = leaf_of(view, host)
     assert leaf["grace_before"] is None
@@ -183,7 +188,7 @@ def test_a_group_changes_its_kind_and_the_view_shows_the_time_it_now_takes(scene
             scene,
             "grace-notes",
             grace(scene, host, "before", value=8, grace_type="acciaccatura"),
-        )["document"]
+        )
         (written,) = grace_notes(view, leaf_of(view, host)["grace_before"])
         assert leaf_of(view, host)["grace_taken"] == {"numerator": 1, "denominator": 32}
 
@@ -192,7 +197,7 @@ def test_a_group_changes_its_kind_and_the_view_shows_the_time_it_now_takes(scene
             scene,
             "grace-type-changes",
             {"note_id": written["id"], "grace_type": "appoggiatura"},
-        )["document"]
+        )
 
     leaf = leaf_of(view, host)
     assert leaf["grace_before"]["grace_type"] == "appoggiatura"
@@ -208,7 +213,7 @@ def test_a_kind_that_would_take_all_the_time_of_the_note_is_refused(scene: Scene
                 scene,
                 "grace-notes",
                 grace(scene, host, "before", value=8, grace_type="acciaccatura"),
-            )["document"]
+            )
         (first, *_rest) = grace_notes(view, leaf_of(view, host)["grace_before"])
 
         post(
@@ -240,7 +245,7 @@ def test_a_grace_carrier_is_put_after_the_one_named_and_first_when_none_is(scene
         host = insert_host(client, scene, "natural")
         view = post(
             client, scene, "grace-notes", grace(scene, host, "before", value=32, staff_step=0)
-        )["document"]
+        )
         (first,) = grace_carriers(view, leaf_of(view, host)["grace_before"])
         post(
             client,
@@ -253,10 +258,10 @@ def test_a_grace_carrier_is_put_after_the_one_named_and_first_when_none_is(scene
             scene,
             "grace-notes",
             grace(scene, host, "before", value=32, staff_step=2, after_carrier_id=first["id"]),
-        )["document"]
+        )
         view = post(
             client, scene, "grace-notes", grace(scene, host, "before", value=32, staff_step=3)
-        )["document"]
+        )
 
     order = [row["steps"] for row in grace_carriers(view, leaf_of(view, host)["grace_before"])]
     assert order == [[3], [0], [2], [1]]
@@ -279,7 +284,7 @@ def test_a_note_joins_a_grace_carrier(scene: Scene) -> None:
         host = insert_host(client, scene, "natural")
         view = post(
             client, scene, "grace-notes", grace(scene, host, "before", value=32, staff_step=0)
-        )["document"]
+        )
         (carrier,) = grace_carriers(view, leaf_of(view, host)["grace_before"])
         view = post(
             client,
@@ -290,7 +295,7 @@ def test_a_note_joins_a_grace_carrier(scene: Scene) -> None:
                 "staff_id": scene.document.staffs[0].id,
                 "staff_step": 2,
             },
-        )["document"]
+        )
 
     leaf = leaf_of(view, host)
     assert [row["steps"] for row in grace_carriers(view, leaf["grace_before"])] == [[0, 2]]
@@ -312,16 +317,14 @@ def test_a_note_cannot_join_a_carrier_that_is_not_a_grace_carrier(scene: Scene) 
 def test_a_grace_carrier_is_written_as_another_value(scene: Scene) -> None:
     with TestClient(scene.app) as client:
         host = insert_host(client, scene, "natural")
-        view = post(client, scene, "grace-notes", grace(scene, host, "before", value=16))[
-            "document"
-        ]
+        view = post(client, scene, "grace-notes", grace(scene, host, "before", value=16))
         (carrier,) = grace_carriers(view, leaf_of(view, host)["grace_before"])
         view = post(
             client,
             scene,
             "grace-value-changes",
             {"carrier_id": carrier["id"], "written_value": {"value": 8, "dots": 0}},
-        )["document"]
+        )
 
     leaf = leaf_of(view, host)
     assert leaf["grace_before"]["items"][0]["rhythmic_value"] == {"value": 8, "dots": 0}

@@ -36,12 +36,13 @@ def test_http_edit_is_saved_and_reversible() -> None:
 
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+    from tests.fixtures.drafts import in_memory_history
+    from tests.fixtures.sync import ClientView
     from tests.unit.domain.scene import build_score, note, rest
 
     from piano_app.adapters.inbound.http.current_user import CurrentUser
     from piano_app.adapters.inbound.http.errors import register_exception_handlers
     from piano_app.adapters.inbound.http.score.edit.router import build_edit_router
-    from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
     from piano_app.application.use_cases.score.edit.service import ScoreEditService
     from piano_app.domain.score.document.models.notation import RhythmicValue
     from piano_app.domain.score.document.models.relations import Beam
@@ -70,7 +71,7 @@ def test_http_edit_is_saved_and_reversible() -> None:
         if i < 4:
             members.append(leaf.carrier)
     beam = Beam.create(carriers=members)
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = asyncio.run(
         storage.create(title="split", author_id="owner", ref_score_id=None, document=score.document)
     )
@@ -87,6 +88,7 @@ def test_http_edit_is_saved_and_reversible() -> None:
     app = FastAPI()
     register_exception_handlers(app=app)
     app.include_router(build_edit_router(service=service, current_user=CurrentUser(service=auth)))
+    held = ClientView(storage=storage, draft_id=draft.draft_id)
     with TestClient(app) as client:
         path = f"/drafts/{draft.draft_id}/edit/presentation"
         headers = {"Authorization": "Bearer owner"}
@@ -113,11 +115,13 @@ def test_http_edit_is_saved_and_reversible() -> None:
                 None,
             )
 
-        assert offsets(response.json()["document"]) == body["changes"][0]["offsets"]
+        assert offsets(held.apply(sync=response.json()["sync"])) == body["changes"][0]["offsets"]
         undone = asyncio.run(service.undo(draft_id=draft.draft_id, actor_id="owner"))
-        assert offsets(undone.jsonify()) is None
+        assert offsets(undone.view.jsonify()) is None
         redone = asyncio.run(service.redo(draft_id=draft.draft_id, actor_id="owner"))
-        assert offsets(redone.jsonify()) == body["changes"][0]["offsets"]
+        assert offsets(redone.view.jsonify()) == body["changes"][0]["offsets"]
+        # undo and redo went past the client: it takes the draft whole again
+        held = ClientView(storage=storage, draft_id=draft.draft_id)
         reset = client.put(
             path,
             headers=headers,
@@ -132,7 +136,7 @@ def test_http_edit_is_saved_and_reversible() -> None:
             },
         )
         assert reset.status_code == 200
-        assert offsets(reset.json()["document"]) is None
+        assert offsets(held.apply(sync=reset.json()["sync"])) is None
         refused = client.put(
             path,
             headers=headers,

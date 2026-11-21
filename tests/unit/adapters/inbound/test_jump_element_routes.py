@@ -6,6 +6,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from tests.fixtures.drafts import in_memory_history
+from tests.fixtures.sync import ClientView
 
 from piano_app.adapters.inbound.http.current_user import CurrentUser
 from piano_app.adapters.inbound.http.errors import register_exception_handlers
@@ -15,7 +17,6 @@ from piano_app.adapters.inbound.http.score.edit.requests import (
     MoveRefrainEndRequest,
 )
 from piano_app.adapters.inbound.http.score.edit.router import build_edit_router
-from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
 from piano_app.application.use_cases.score.edit.service import ScoreEditService
 from piano_app.domain.score.document import ScoreDocument
 from piano_app.domain.score.document.models.structural import MeasurePosition
@@ -31,11 +32,11 @@ _ZERO: dict[str, int] = {"numerator": 0, "denominator": 1}
 _HEADERS: dict[str, str] = {"Authorization": "Bearer owner"}
 
 
-def _client() -> tuple[TestClient, str, list[str]]:
+def _client() -> tuple[TestClient, ClientView, str, list[str]]:
     document: ScoreDocument = ScoreDocument.create_fresh(
         voice_count=1, staff_count=1, measure_count=7
     )
-    storage = InMemoryDraftHistory()
+    storage = in_memory_history()
     draft = asyncio.run(
         storage.create(title="jumps", author_id="owner", ref_score_id=None, document=document)
     )
@@ -51,11 +52,12 @@ def _client() -> tuple[TestClient, str, list[str]]:
             current_user=CurrentUser(service=auth),
         )
     )
-    return TestClient(app), draft.draft_id, [measure.id for measure in document.measures]
+    held = ClientView(storage=storage, draft_id=draft.draft_id)
+    return TestClient(app), held, draft.draft_id, [measure.id for measure in document.measures]
 
 
-def _rows(*, body: dict[str, Any], kind: str) -> list[dict[str, Any]]:
-    return [row for row in body["document"]["contexts"] if row["kind"] == kind]
+def _rows(*, view: dict[str, Any], kind: str) -> list[dict[str, Any]]:
+    return [row for row in view["contexts"] if row["kind"] == kind]
 
 
 def _post(client: TestClient, draft_id: str, path: str, json: dict[str, Any]) -> Any:
@@ -67,7 +69,7 @@ def _put(client: TestClient, draft_id: str, path: str, json: dict[str, Any]) -> 
 
 
 def test_the_refrain_routes_make_change_and_end_a_refrain() -> None:
-    client, draft_id, measures = _client()
+    client, held, draft_id, measures = _client()
 
     created = _post(
         client,
@@ -83,12 +85,12 @@ def test_the_refrain_routes_make_change_and_end_a_refrain() -> None:
     )
 
     assert created.status_code == 200, created.text
-    (refrain,) = _rows(body=created.json(), kind="refrain")
+    (refrain,) = _rows(view=held.apply(sync=created.json()["sync"]), kind="refrain")
     assert refrain["times"] == 3
     assert refrain["end_measure_id"] == measures[2]
 
     more = _put(client, draft_id, "refrain-times", {"refrain_id": refrain["id"], "times": 5})
-    assert _rows(body=more.json(), kind="refrain")[0]["times"] == 5
+    assert _rows(view=held.apply(sync=more.json()["sync"]), kind="refrain")[0]["times"] == 5
 
     moved = _put(
         client,
@@ -96,17 +98,23 @@ def test_the_refrain_routes_make_change_and_end_a_refrain() -> None:
         "refrain-ends",
         {"refrain_id": refrain["id"], "measure_id": measures[4], "position": _ZERO},
     )
-    assert _rows(body=moved.json(), kind="refrain")[0]["end_measure_id"] == measures[4]
+    assert (
+        _rows(view=held.apply(sync=moved.json()["sync"]), kind="refrain")[0]["end_measure_id"]
+        == measures[4]
+    )
 
     opened = _put(client, draft_id, "refrain-ends", {"refrain_id": refrain["id"]})
-    assert _rows(body=opened.json(), kind="refrain")[0]["end_measure_id"] is None
+    assert (
+        _rows(view=held.apply(sync=opened.json()["sync"]), kind="refrain")[0]["end_measure_id"]
+        is None
+    )
 
     refused = _put(client, draft_id, "refrain-times", {"refrain_id": refrain["id"], "times": 1})
     assert refused.status_code == 422
 
 
 def test_the_volta_routes_make_a_volta_and_reshape_it() -> None:
-    client, draft_id, measures = _client()
+    client, held, draft_id, measures = _client()
 
     created = _post(
         client,
@@ -125,7 +133,7 @@ def test_the_volta_routes_make_a_volta_and_reshape_it() -> None:
     )
 
     assert created.status_code == 200, created.text
-    (volta,) = _rows(body=created.json(), kind="volta")
+    (volta,) = _rows(view=held.apply(sync=created.json()["sync"]), kind="volta")
     assert volta["pass_count"] == 4
     assert [fragment["passes"] for fragment in volta["fragments"]] == [[1, 3], [2]]
 
@@ -140,7 +148,7 @@ def test_the_volta_routes_make_a_volta_and_reshape_it() -> None:
             "position": _ZERO,
         },
     )
-    (after,) = _rows(body=absorbed.json(), kind="volta")
+    (after,) = _rows(view=held.apply(sync=absorbed.json()["sync"]), kind="volta")
     assert after["pass_count"] == 3
     assert [fragment["passes"] for fragment in after["fragments"]] == [[1, 2]]
 
@@ -150,7 +158,7 @@ def test_the_volta_routes_make_a_volta_and_reshape_it() -> None:
         "volta-fragments",
         {"volta_id": volta["id"], "measure_id": measures[5], "position": _ZERO},
     )
-    (grown,) = _rows(body=longer.json(), kind="volta")
+    (grown,) = _rows(view=held.apply(sync=longer.json()["sync"]), kind="volta")
     assert [fragment["passes"] for fragment in grown["fragments"]] == [[1, 2], [3]]
     assert grown["pass_count"] == 4
 
@@ -160,7 +168,7 @@ def test_the_volta_routes_make_a_volta_and_reshape_it() -> None:
         "volta-fragment-passes",
         {"volta_id": volta["id"], "fragment": 1, "passes": [2, 3]},
     )
-    (renamed,) = _rows(body=named.json(), kind="volta")
+    (renamed,) = _rows(view=held.apply(sync=named.json()["sync"]), kind="volta")
     assert [fragment["passes"] for fragment in renamed["fragments"]] == [[1], [2, 3]]
 
     refused = _put(
@@ -173,7 +181,7 @@ def test_the_volta_routes_make_a_volta_and_reshape_it() -> None:
     assert "the others leave" in refused.text
 
     longer_run = _put(client, draft_id, "volta-times", {"volta_id": volta["id"], "times": 5})
-    (played_five,) = _rows(body=longer_run.json(), kind="volta")
+    (played_five,) = _rows(view=held.apply(sync=longer_run.json()["sync"]), kind="volta")
     assert played_five["pass_count"] == 5
     assert [fragment["passes"] for fragment in played_five["fragments"]] == [[1, 4], [2, 3]]
 
@@ -183,7 +191,7 @@ def test_the_volta_routes_make_a_volta_and_reshape_it() -> None:
 
 
 def test_the_refrain_ending_route_turns_a_repeat_into_a_volta() -> None:
-    client, draft_id, measures = _client()
+    client, held, draft_id, measures = _client()
     created = _post(
         client,
         draft_id,
@@ -196,7 +204,7 @@ def test_the_refrain_ending_route_turns_a_repeat_into_a_volta() -> None:
             "times": 2,
         },
     )
-    (refrain,) = _rows(body=created.json(), kind="refrain")
+    (refrain,) = _rows(view=held.apply(sync=created.json()["sync"]), kind="refrain")
 
     turned = _post(
         client,
@@ -206,14 +214,15 @@ def test_the_refrain_ending_route_turns_a_repeat_into_a_volta() -> None:
     )
 
     assert turned.status_code == 200, turned.text
-    assert _rows(body=turned.json(), kind="refrain") == []
-    (volta,) = _rows(body=turned.json(), kind="volta")
+    view = held.apply(sync=turned.json()["sync"])
+    assert _rows(view=view, kind="refrain") == []
+    (volta,) = _rows(view=view, kind="volta")
     assert volta["pass_count"] == 2
     assert [fragment["passes"] for fragment in volta["fragments"]] == [[1]]
 
 
 def test_a_volta_is_cut_and_its_body_moved_by_their_routes() -> None:
-    client, draft_id, measures = _client()
+    client, held, draft_id, measures = _client()
     created = _post(
         client,
         draft_id,
@@ -226,7 +235,7 @@ def test_a_volta_is_cut_and_its_body_moved_by_their_routes() -> None:
             "fragments": [{"end_measure_id": measures[6], "end_position": _ZERO, "passes": [1]}],
         },
     )
-    (volta,) = _rows(body=created.json(), kind="volta")
+    (volta,) = _rows(view=held.apply(sync=created.json()["sync"]), kind="volta")
 
     cut = _post(
         client,
@@ -234,7 +243,7 @@ def test_a_volta_is_cut_and_its_body_moved_by_their_routes() -> None:
         "volta-fragment-splits",
         {"volta_id": volta["id"], "measure_id": measures[5], "position": _ZERO},
     )
-    (split,) = _rows(body=cut.json(), kind="volta")
+    (split,) = _rows(view=held.apply(sync=cut.json()["sync"]), kind="volta")
     assert [fragment["passes"] for fragment in split["fragments"]] == [[1], [2]]
 
     moved = _put(
@@ -243,7 +252,7 @@ def test_a_volta_is_cut_and_its_body_moved_by_their_routes() -> None:
         "volta-starts",
         {"volta_id": volta["id"], "measure_id": measures[2], "position": _ZERO},
     )
-    (after,) = _rows(body=moved.json(), kind="volta")
+    (after,) = _rows(view=held.apply(sync=moved.json()["sync"]), kind="volta")
     assert after["measure_id"] == measures[2]
 
 

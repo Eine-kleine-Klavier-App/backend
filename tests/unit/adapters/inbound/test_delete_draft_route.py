@@ -2,19 +2,19 @@ from unittest.mock import Mock
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from tests.fixtures.drafts import in_memory_history
 
 from piano_app.adapters.inbound.http.current_user import CurrentUser
 from piano_app.adapters.inbound.http.errors import register_exception_handlers
 from piano_app.adapters.inbound.http.score.draft.router import build_draft_router
-from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
 from piano_app.application.errors import InvalidAccessTokenError
 from piano_app.application.use_cases.score.draft.service import DraftService
 from piano_app.domain.score.document import ScoreDocument
 
 
 async def test_delete_route_owner_foreign_missing_and_unauthorized() -> None:
-    storage = InMemoryDraftHistory()
-    document = ScoreDocument.create(voices=[], staffs=[], measures=[])
+    storage = in_memory_history()
+    document = ScoreDocument.create_fresh(voice_count=1, staff_count=1, measure_count=1)
     first = await storage.create(
         title="Delete", author_id="owner", ref_score_id="saved", document=document
     )
