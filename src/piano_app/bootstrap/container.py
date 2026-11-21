@@ -20,27 +20,21 @@ from piano_app.adapters.inbound.http import (
 )
 from piano_app.adapters.inbound.http.score.collection.router import build_collection_router
 from piano_app.adapters.inbound.http.score.manage.router import build_manage_router
-from piano_app.adapters.inbound.http.score.playback import build_playback_router
-from piano_app.adapters.inbound.http.score.playback.preview_socket import (
-    build_preview_socket_router,
-)
-from piano_app.adapters.inbound.http.score.playback.responses import AUDIO_HEADERS
 from piano_app.adapters.inbound.http.score.playback.saved_router import build_saved_playback_router
 from piano_app.adapters.outbound.auth import JWTAccessTokenService, ScryptPasswordHasher
-from piano_app.adapters.outbound.fluidsynth import FluidSynthRenderer
 from piano_app.adapters.outbound.google import GoogleIdentityVerifier
-from piano_app.adapters.outbound.in_memory.draft_history import InMemoryDraftHistory
+from piano_app.adapters.outbound.in_memory.draft_storage import InMemoryDraftStorage
 from piano_app.adapters.outbound.postgres.draft import PostgresDraftArchive
 from piano_app.adapters.outbound.postgres.engine import create_engine as create_pg_engine
 from piano_app.adapters.outbound.postgres.engine import create_session_factory
 from piano_app.adapters.outbound.postgres.system.auth import PostgresAuthUoWFactory
 from piano_app.adapters.outbound.postgres.system.score import PostgresScoreUoWFactory
 from piano_app.adapters.outbound.redis.client import create_client as create_redis_client
-from piano_app.adapters.outbound.redis.draft_cache import RedisDraftCache
-from piano_app.adapters.outbound.redis.draft_history import RedisDraftHistory
+from piano_app.adapters.outbound.redis.draft_storage import RedisDraftStorage
 from piano_app.adapters.outbound.shared.codec import ScoreDocumentCodec
-from piano_app.adapters.outbound.tiered_draft_history import TieredDraftHistory
+from piano_app.adapters.outbound.tiered_draft_storage import TieredDraftStorage
 from piano_app.application.ports import DraftHistory, ScoreUoWFactory
+from piano_app.application.ports.score import DraftStorage
 from piano_app.application.use_cases.auth import AuthService
 from piano_app.application.use_cases.score import (
     SaveScoreService,
@@ -50,8 +44,8 @@ from piano_app.application.use_cases.score import (
 from piano_app.application.use_cases.score.collection.service import CollectionService
 from piano_app.application.use_cases.score.draft.service import DraftService
 from piano_app.application.use_cases.score.manage.service import ScoreManageService
-from piano_app.application.use_cases.score.playback import PlaybackService, PreviewSessionService
 from piano_app.application.use_cases.score.playback.saved_score import SavedScorePlaybackService
+from piano_app.application.use_cases.score.shared.draft_history import DraftHistoryService
 from piano_app.domain.score.document.services.mutation import (
     MutationCompiler,
     MutationEngine,
@@ -62,13 +56,8 @@ from piano_app.domain.score.document.services.mutation import (
 from .settings import DraftHistoryBackend, Settings, load_settings
 
 
-def build_draft_history(
-    *,
-    settings: Settings,
-    codec: ScoreDocumentCodec,
-    stack: AsyncExitStack,
-) -> DraftHistory:
-    """Constructs the configured draft-history adapter, per ``settings.DRAFT_HISTORY_BACKEND``
+def build_draft_storage(*, settings: Settings, stack: AsyncExitStack) -> DraftStorage:
+    """Constructs the configured draft-storage adapter, per ``settings.DRAFT_HISTORY_BACKEND``
     (in-memory by default), and registers ITS OWN cleanup on ``stack`` right here — the
     caller (``build_app``) never inspects the returned adapter's type or reaches for a
     connection it doesn't know about; each backend owns both its construction and its
@@ -76,13 +65,13 @@ def build_draft_history(
     it never receives the system database's session factory. MEMORY registers nothing."""
     match settings.DRAFT_HISTORY_BACKEND:
         case DraftHistoryBackend.MEMORY:
-            return InMemoryDraftHistory()
+            return InMemoryDraftStorage()
         case DraftHistoryBackend.REDIS:
             assert settings.REDIS_URL is not None, "REDIS draft history needs REDIS_URL set."
             client: Redis = create_redis_client(database_url=settings.REDIS_URL)
-            history: RedisDraftHistory = RedisDraftHistory(client=client, codec=codec)
-            stack.push_async_callback(history.aclose)
-            return history
+            storage: RedisDraftStorage = RedisDraftStorage(client=client)
+            stack.push_async_callback(storage.aclose)
+            return storage
         case DraftHistoryBackend.TIERED:
             assert settings.DRAFT_DATABASE_URL is not None, (
                 "TIERED draft history needs DRAFT_DATABASE_URL set."
@@ -93,14 +82,15 @@ def build_draft_history(
             draft_session_factory: async_sessionmaker[AsyncSession] = create_session_factory(
                 engine=draft_engine
             )
-            cache: RedisDraftCache = RedisDraftCache(
-                client=create_redis_client(database_url=settings.REDIS_URL), codec=codec
+            cache: RedisDraftStorage = RedisDraftStorage(
+                client=create_redis_client(database_url=settings.REDIS_URL),
+                remember_deleted=True,
             )
             stack.push_async_callback(cache.aclose)
             archive: PostgresDraftArchive = PostgresDraftArchive(
-                session_factory=draft_session_factory, codec=codec
+                session_factory=draft_session_factory
             )
-            tiered: TieredDraftHistory = TieredDraftHistory(archive=archive, cache=cache)
+            tiered: TieredDraftStorage = TieredDraftStorage(archive=archive, cache=cache)
             stack.push_async_callback(tiered.aclose)
             return tiered
 
@@ -132,7 +122,7 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
 
     # every resource-owning builder below registers its own cleanup on this stack, at
     # the point where it's constructed — build_app never inspects what it got back to
-    # decide whether/how to close it (see build_pg_engine / build_draft_history).
+    # decide whether/how to close it (see build_pg_engine / build_draft_storage).
     stack: AsyncExitStack = AsyncExitStack()
 
     pg_engine: AsyncEngine = build_pg_engine(settings=resolved_settings, stack=stack)
@@ -160,8 +150,8 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
 
     engine: MutationEngine = build_engine()
     compiler: MutationCompiler = build_compiler()
-    history: DraftHistory = build_draft_history(
-        settings=resolved_settings, codec=codec, stack=stack
+    history: DraftHistory = DraftHistoryService(
+        storage=build_draft_storage(settings=resolved_settings, stack=stack), codec=codec
     )
     edit_service: ScoreEditService = ScoreEditService(
         engine=engine, compiler=compiler, history=history
@@ -177,22 +167,7 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
     catalog_service: ScoreCatalogService = ScoreCatalogService(score_uow_factory=score_uow_factory)
     manage_service: ScoreManageService = ScoreManageService(score_uow_factory=score_uow_factory)
     collection_service: CollectionService = CollectionService(score_uow_factory=score_uow_factory)
-    playback_renderer: FluidSynthRenderer | None = (
-        None
-        if resolved_settings.PLAYBACK_SOUNDFONT is None
-        else FluidSynthRenderer(
-            soundfont=resolved_settings.PLAYBACK_SOUNDFONT,
-            library_path=resolved_settings.PLAYBACK_FLUIDSYNTH_LIBRARY,
-            gain=resolved_settings.PLAYBACK_GAIN,
-        )
-    )
-    playback_service: PlaybackService = PlaybackService(storage=history, renderer=playback_renderer)
-    saved_playback_service = SavedScorePlaybackService(
-        score_uow_factory=score_uow_factory, renderer=playback_renderer
-    )
-    preview_service: PreviewSessionService = PreviewSessionService(
-        storage=history, renderer=playback_renderer
-    )
+    saved_playback_service = SavedScorePlaybackService(score_uow_factory=score_uow_factory)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -202,7 +177,6 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
-            await preview_service.close()
             await stack.aclose()
 
     app: FastAPI = FastAPI(title="Piano App", lifespan=lifespan)
@@ -212,7 +186,6 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=list(AUDIO_HEADERS),
     )
     register_exception_handlers(app=app)
     app.include_router(
@@ -239,17 +212,9 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
     app.include_router(
         build_collection_router(service=collection_service, current_user=current_user)
     )
-    app.include_router(build_playback_router(service=playback_service, current_user=current_user))
     app.include_router(
         build_saved_playback_router(
             service=saved_playback_service, current_user_optional=current_user_optional
-        )
-    )
-    app.include_router(
-        build_preview_socket_router(
-            service=preview_service,
-            auth=auth_service,
-            allowed_origins=resolved_settings.CORS_ORIGINS,
         )
     )
     return app

@@ -124,11 +124,3 @@ class ContextNotFoundError(Exception):
 
 class PlaybackRejectedError(Exception):
     """The requested playback cannot be built from the document."""
-
-
-class PlaybackCarrierNotFoundError(Exception):
-    """The requested note carrier is not in this draft."""
-
-
-class PlaybackUnavailableError(Exception):
-    """Server synthesis is unconfigured or cannot start."""
