@@ -14,9 +14,7 @@ from piano_app.application.errors import (
     InvalidPaginationCursorError,
     InvalidPasswordCredentialsError,
     InvalidRefreshTokenError,
-    PlaybackCarrierNotFoundError,
     PlaybackRejectedError,
-    PlaybackUnavailableError,
     ScoreEditRejectedError,
     ScoreNotFoundError,
     ScoreNotOwnedError,
@@ -36,8 +34,6 @@ class ErrorMapping:
 _ERROR_MAPPINGS: tuple[ErrorMapping, ...] = (
     ErrorMapping(error_type=ContextNotFoundError, status_code=status.HTTP_404_NOT_FOUND),
     ErrorMapping(error_type=PlaybackRejectedError, status_code=422),
-    ErrorMapping(error_type=PlaybackCarrierNotFoundError, status_code=404),
-    ErrorMapping(error_type=PlaybackUnavailableError, status_code=503),
     ErrorMapping(
         error_type=InvalidPaginationCursorError,
         status_code=status.HTTP_400_BAD_REQUEST,
