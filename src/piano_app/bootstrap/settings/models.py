@@ -58,3 +58,6 @@ class Settings(BaseSettings):
 
     # --- HTTP: CORS.
     CORS_ORIGINS: tuple[str, ...] = ()
+
+    # --- Import: the largest uploaded score file, in bytes.
+    IMPORT_MAX_UPLOAD_BYTES: int = 20 * 1024 * 1024
