@@ -124,3 +124,31 @@ class ContextNotFoundError(Exception):
 
 class PlaybackRejectedError(Exception):
     """The requested playback cannot be built from the document."""
+
+
+class ImportJobNotFoundError(Exception):
+    """The caller has no import job with this id (it never existed, is not theirs, or is gone)."""
+
+    def __init__(self) -> None:
+        super().__init__("There is no such import.")
+
+
+class ImportFormatUnsupportedError(Exception):
+    """The uploaded file is not in a format the importer reads."""
+
+    def __init__(self) -> None:
+        super().__init__("This file format cannot be imported.")
+
+
+class ImportBusyError(Exception):
+    """Too many imports are running at once."""
+
+    def __init__(self) -> None:
+        super().__init__("Too many imports are running; try again in a moment.")
+
+
+class ImportTooLargeError(Exception):
+    """The uploaded file is over the size limit."""
+
+    def __init__(self, *, limit: int) -> None:
+        super().__init__(f"The file is larger than {limit} bytes.")
