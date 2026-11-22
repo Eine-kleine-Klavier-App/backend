@@ -9,6 +9,10 @@ from piano_app.application.errors import (
     DraftNotFoundError,
     DraftVersionConflictError,
     IdentityAlreadyLinkedError,
+    ImportBusyError,
+    ImportFormatUnsupportedError,
+    ImportJobNotFoundError,
+    ImportTooLargeError,
     InvalidAccessTokenError,
     InvalidExternalCredentialError,
     InvalidPaginationCursorError,
@@ -34,6 +38,10 @@ class ErrorMapping:
 _ERROR_MAPPINGS: tuple[ErrorMapping, ...] = (
     ErrorMapping(error_type=ContextNotFoundError, status_code=status.HTTP_404_NOT_FOUND),
     ErrorMapping(error_type=PlaybackRejectedError, status_code=422),
+    ErrorMapping(error_type=ImportJobNotFoundError, status_code=status.HTTP_404_NOT_FOUND),
+    ErrorMapping(error_type=ImportTooLargeError, status_code=413),
+    ErrorMapping(error_type=ImportFormatUnsupportedError, status_code=415),
+    ErrorMapping(error_type=ImportBusyError, status_code=status.HTTP_429_TOO_MANY_REQUESTS),
     ErrorMapping(
         error_type=InvalidPaginationCursorError,
         status_code=status.HTTP_400_BAD_REQUEST,
