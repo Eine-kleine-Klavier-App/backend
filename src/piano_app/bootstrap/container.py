@@ -19,10 +19,12 @@ from piano_app.adapters.inbound.http import (
     register_exception_handlers,
 )
 from piano_app.adapters.inbound.http.score.collection.router import build_collection_router
+from piano_app.adapters.inbound.http.score.import_score import build_import_router
 from piano_app.adapters.inbound.http.score.manage.router import build_manage_router
 from piano_app.adapters.inbound.http.score.playback.saved_router import build_saved_playback_router
 from piano_app.adapters.outbound.auth import JWTAccessTokenService, ScryptPasswordHasher
 from piano_app.adapters.outbound.google import GoogleIdentityVerifier
+from piano_app.adapters.outbound.importers.musicxml.reader import MusicXmlReader
 from piano_app.adapters.outbound.in_memory.draft_storage import InMemoryDraftStorage
 from piano_app.adapters.outbound.postgres.draft import PostgresDraftArchive
 from piano_app.adapters.outbound.postgres.engine import create_engine as create_pg_engine
@@ -43,6 +45,10 @@ from piano_app.application.use_cases.score import (
 )
 from piano_app.application.use_cases.score.collection.service import CollectionService
 from piano_app.application.use_cases.score.draft.service import DraftService
+from piano_app.application.use_cases.score.import_score.builder import ScoreBuilder
+from piano_app.application.use_cases.score.import_score.compare import ScoreComparer
+from piano_app.application.use_cases.score.import_score.jobs import ImportJobs
+from piano_app.application.use_cases.score.import_score.service import ImportService
 from piano_app.application.use_cases.score.manage.service import ScoreManageService
 from piano_app.application.use_cases.score.playback.saved_score import SavedScorePlaybackService
 from piano_app.application.use_cases.score.shared.draft_history import DraftHistoryService
@@ -167,6 +173,13 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
     catalog_service: ScoreCatalogService = ScoreCatalogService(score_uow_factory=score_uow_factory)
     manage_service: ScoreManageService = ScoreManageService(score_uow_factory=score_uow_factory)
     collection_service: CollectionService = CollectionService(score_uow_factory=score_uow_factory)
+    import_service: ImportService = ImportService(
+        storage=history,
+        readers=(MusicXmlReader(),),
+        builder=ScoreBuilder(engine=engine, compiler=compiler),
+        comparer=ScoreComparer(),
+        jobs=ImportJobs(),
+    )
     saved_playback_service = SavedScorePlaybackService(score_uow_factory=score_uow_factory)
 
     @asynccontextmanager
@@ -206,6 +219,13 @@ def build_app(*, settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(build_authors_router(service=catalog_service))
     app.include_router(build_draft_router(service=draft_service, current_user=current_user))
+    app.include_router(
+        build_import_router(
+            service=import_service,
+            current_user=current_user,
+            max_upload_bytes=resolved_settings.IMPORT_MAX_UPLOAD_BYTES,
+        )
+    )
     app.include_router(build_edit_router(service=edit_service, current_user=current_user))
     app.include_router(build_save_router(service=save_service, current_user=current_user))
     app.include_router(build_manage_router(service=manage_service, current_user=current_user))
