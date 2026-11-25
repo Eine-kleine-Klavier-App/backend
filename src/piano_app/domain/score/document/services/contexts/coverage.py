@@ -15,7 +15,7 @@ from piano_app.domain.score.document.services.geometry.score_geometry import Sco
 from piano_app.domain.score.document.services.helpers import voice_of
 
 from .index import ContextIndex
-from .scope import Scope, scopes_of
+from .scope import Scope, scope_of
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -36,20 +36,17 @@ def covered_by(
     """The elements ``context`` is applied to: those that start inside its region ``[start, end)``
     and belong to what it governs. One rule for every kind of context.
 
-    A span context governs its region in each of its scopes. A point context governs, in each of
-    its scopes, from its place until the next context of its kind there. The scope says which
-    elements belong: the whole score takes all of them, a voice its own carriers, a staff the
-    notes and rests that stand on it.
+    A span context governs from its start to its end. A point context governs from its place until
+    the next context of its kind in its scope. The scope says which elements belong: the whole
+    score takes all of them, a voice its own carriers, a staff the notes and rests that stand on it.
     """
     start: Fraction = geometry.point_of(anchor=context.start).value
-    regions: list[tuple[Scope, Fraction, Fraction]] = []
-    for scope in scopes_of(context=context):
-        if isinstance(context, SpanContext):
-            end: Fraction = geometry.end_of(context=context).value
-        else:
-            end = contexts.piece_at(kind=type(context), point=start, scope=scope).span.end
-
-        regions.append((scope, start, end))
+    scope: Scope = scope_of(context=context)
+    end: Fraction
+    if isinstance(context, SpanContext):
+        end = geometry.end_of(context=context).value
+    else:
+        end = contexts.piece_at(kind=type(context), point=start, scope=scope).span.end
 
     carriers: dict[str, Carrier] = {}
     notes: dict[str, Note] = {}
@@ -60,20 +57,19 @@ def covered_by(
                 if not isinstance(container, LeafRhythmicContainer) or container.carrier is None:
                     continue
 
+                if not start <= onset < end:
+                    continue
+
                 carrier: Carrier = container.carrier
                 voice: Voice = voice_of(container)
-                for scope, region_start, region_end in regions:
-                    if not region_start <= onset < region_end:
-                        continue
-
-                    held: list[Note] = _held_by(carrier=carrier, scope=scope, voice=voice)
-                    if held or (
-                        isinstance(carrier, RestCarrier)
-                        and _rest_is_held(carrier=carrier, scope=scope, voice=voice)
-                    ):
-                        carriers[carrier.id] = carrier
-                        for note in held:
-                            notes[note.id] = note
+                held: list[Note] = _held_by(carrier=carrier, scope=scope, voice=voice)
+                if held or (
+                    isinstance(carrier, RestCarrier)
+                    and _rest_is_held(carrier=carrier, scope=scope, voice=voice)
+                ):
+                    carriers[carrier.id] = carrier
+                    for note in held:
+                        notes[note.id] = note
 
     return Coverage(carriers=tuple(carriers.values()), notes=tuple(notes.values()))
 

@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum, auto
 from fractions import Fraction
@@ -16,7 +15,7 @@ from piano_app.domain.score.document.models.context import (
     SustainHold,
     TempoChange,
     TempoTransition,
-    VoicesScoped,
+    VoiceScoped,
 )
 from piano_app.domain.score.document.models.structural import (
     Measure,
@@ -46,7 +45,6 @@ class OnSamePlace(Enum):
     """What creating a context does to one of its kind already starting at the same place."""
 
     REPLACE = auto()
-    SUBTRACT_VOICES = auto()
     NOTHING = auto()
 
 
@@ -78,7 +76,7 @@ _POLICIES: dict[type[Context], KindPolicy] = {
     ClefChange: KindPolicy(on_same_place=OnSamePlace.REPLACE),
     KeySignatureChange: KindPolicy(on_same_place=OnSamePlace.REPLACE),
     TempoChange: KindPolicy(on_same_place=OnSamePlace.REPLACE, partner=TempoTransition),
-    DynamicChange: KindPolicy(on_same_place=OnSamePlace.SUBTRACT_VOICES, partner=Hairpin),
+    DynamicChange: KindPolicy(on_same_place=OnSamePlace.REPLACE, partner=Hairpin),
     OctaveTransposition: KindPolicy(on_same_place=OnSamePlace.NOTHING),
     Hairpin: KindPolicy(on_same_place=OnSamePlace.NOTHING, partner=DynamicChange),
     TempoTransition: KindPolicy(on_same_place=OnSamePlace.NOTHING, partner=TempoChange),
@@ -113,12 +111,12 @@ def find_clashes(
     start: Fraction,
     end: Fraction | None,
     staff: Staff | None,
-    voices: Sequence[Voice] | None,
+    voice: Voice | None,
     ignore: Context | None = None,
 ) -> list[Clash]:
     """The contexts a context of ``kind`` may not share the timeline with if it were placed at
     ``start`` — a span if ``end`` is given, else a point — and how each meets it. Positions are
-    on the global timeline; ``staff`` and ``voices`` are what the kind is scoped to, the one
+    on the global timeline; ``staff`` and ``voice`` are what the kind is scoped to, the one
     that applies being read. ``ignore`` is the context being moved. A kind without a policy
     meets nothing.
 
@@ -128,48 +126,49 @@ def find_clashes(
     if policy is None:
         return []
 
-    scopes: list[Scope]
+    scope: Scope
     if issubclass(kind, StaffScoped):
-        scopes = [] if staff is None else [Scope.of_staff(staff=staff)]
-    elif issubclass(kind, VoicesScoped):
-        scopes = [Scope.of_voice(voice=voice) for voice in voices or ()]
+        if staff is None:
+            return []
+
+        scope = Scope.of_staff(staff=staff)
+    elif issubclass(kind, VoiceScoped):
+        if voice is None:
+            return []
+
+        scope = Scope.of_voice(voice=voice)
     else:
-        scopes = [Scope.score()]
+        scope = Scope.score()
 
     clashes: list[Clash] = []
-    listed: set[Context] = set()
 
     if end is None:
-        for scope in scopes:
-            for same in contexts.starting_at(kind=kind, point=start, scope=scope):
-                if same is not ignore and same not in listed:
-                    listed.add(same)
-                    clashes.append(
-                        Clash(kind=ClashKind.SAME_PLACE, context=same, reason=_SAME_PLACE_REASON)
-                    )
+        for same in contexts.starting_at(kind=kind, point=start, scope=scope):
+            if same is not ignore:
+                clashes.append(
+                    Clash(kind=ClashKind.SAME_PLACE, context=same, reason=_SAME_PLACE_REASON)
+                )
 
         if policy.partner is not None and issubclass(policy.partner, SpanContext) and start > 0:
-            for scope in scopes:
-                right: Piece[SpanContext | None, SpanContext] = contexts.piece_at(
-                    kind=policy.partner, point=start, scope=scope
-                )
-                left: Piece[SpanContext | None, SpanContext] = contexts.pieces_over(
-                    kind=policy.partner, start=Fraction(0), end=start, scope=scope
-                )[-1]
-                # a span that lies over the point on both sides begins before it and ends after
-                for across in right.sources:
-                    if across in left.sources and across not in listed:
-                        listed.add(across)
-                        clashes.append(
-                            Clash(
-                                kind=ClashKind.INSIDE,
-                                context=across,
-                                reason=(
-                                    f"A {kind.__name__} cannot be placed inside a "
-                                    f"{policy.partner.__name__}."
-                                ),
-                            )
+            right: Piece[SpanContext | None, SpanContext] = contexts.piece_at(
+                kind=policy.partner, point=start, scope=scope
+            )
+            left: Piece[SpanContext | None, SpanContext] = contexts.pieces_over(
+                kind=policy.partner, start=Fraction(0), end=start, scope=scope
+            )[-1]
+            # a span that lies over the point on both sides begins before it and ends after
+            for across in right.sources:
+                if across in left.sources:
+                    clashes.append(
+                        Clash(
+                            kind=ClashKind.INSIDE,
+                            context=across,
+                            reason=(
+                                f"A {kind.__name__} cannot be placed inside a "
+                                f"{policy.partner.__name__}."
+                            ),
                         )
+                    )
 
         return clashes
 
@@ -177,37 +176,33 @@ def find_clashes(
         raise TypeError(f"{kind.__name__} is not a span: it has no end.")
 
     if not policy.may_overlap:
-        for scope in scopes:
-            for piece in contexts.pieces_over(kind=kind, start=start, end=end, scope=scope):
-                for overlapping in piece.sources:
-                    if overlapping is not ignore and overlapping not in listed:
-                        listed.add(overlapping)
-                        clashes.append(
-                            Clash(
-                                kind=ClashKind.OVERLAP,
-                                context=overlapping,
-                                reason=f"A {kind.__name__} cannot overlap another.",
-                            )
-                        )
-
-    if policy.partner is not None:
-        for scope in scopes:
-            # the first piece begins at ``start``; each later one begins where a point starts
-            for cut in contexts.pieces_over(kind=policy.partner, start=start, end=end, scope=scope)[
-                1:
-            ]:
-                inside: Context | None = cut.value
-                if inside is not None and inside not in listed:
-                    listed.add(inside)
+        listed: set[Context] = set()
+        for piece in contexts.pieces_over(kind=kind, start=start, end=end, scope=scope):
+            for overlapping in piece.sources:
+                if overlapping is not ignore and overlapping not in listed:
+                    listed.add(overlapping)
                     clashes.append(
                         Clash(
-                            kind=ClashKind.HOLDS,
-                            context=inside,
-                            reason=(
-                                f"A {kind.__name__} cannot hold a {policy.partner.__name__} "
-                                "strictly inside."
-                            ),
+                            kind=ClashKind.OVERLAP,
+                            context=overlapping,
+                            reason=f"A {kind.__name__} cannot overlap another.",
                         )
                     )
+
+    if policy.partner is not None:
+        # the first piece begins at ``start``; each later one begins where a point starts
+        for cut in contexts.pieces_over(kind=policy.partner, start=start, end=end, scope=scope)[1:]:
+            inside: Context | None = cut.value
+            if inside is not None:
+                clashes.append(
+                    Clash(
+                        kind=ClashKind.HOLDS,
+                        context=inside,
+                        reason=(
+                            f"A {kind.__name__} cannot hold a {policy.partner.__name__} "
+                            "strictly inside."
+                        ),
+                    )
+                )
 
     return clashes

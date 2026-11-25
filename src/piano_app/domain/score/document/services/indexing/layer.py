@@ -6,7 +6,6 @@ from piano_app.domain.score.document.models.context import (
     ClefChange,
     Context,
     OctaveTransposition,
-    VoicesScoped,
 )
 from piano_app.domain.score.document.models.material import Note, NoteCarrier
 from piano_app.domain.score.document.models.structural import (
@@ -108,8 +107,6 @@ class IndexLayer(Index):
             self.invalidate_context(context=target)
             if isinstance(target, ClefChange | OctaveTransposition):
                 self.invalidate_staff(staff=target.staff)
-        elif isinstance(target, VoicesScoped) and field_name == "_voices":
-            self.invalidate_context(context=target)
         elif isinstance(target, Note) and field_name in _NOTE_FIELDS:
             self.invalidate_note(note=target)
 
