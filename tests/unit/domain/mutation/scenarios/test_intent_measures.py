@@ -5,6 +5,7 @@ import pytest
 from piano_app.domain.score.document.models.context import (
     ClefChange,
     Context,
+    DynamicChange,
     Hairpin,
     KeySignatureChange,
     Slur,
@@ -12,6 +13,7 @@ from piano_app.domain.score.document.models.context import (
 from piano_app.domain.score.document.models.material import Carrier, Note
 from piano_app.domain.score.document.models.notation import (
     Clef,
+    DynamicMarking,
     GlissandoType,
     RhythmicSize,
     RhythmicValue,
@@ -248,7 +250,7 @@ def test_a_measure_inserted_between_two_takes_the_left_signature_and_breaks_the_
     slur: Slur = Slur.create(
         start=anchor_at(score=score, at=Fraction(0)),
         end=slur_end,
-        voices=[score.voice],
+        voice=score.voice,
     )
 
     apply_intent(score=score, intent=insert_measure(before=score.measures[1]))
@@ -574,18 +576,18 @@ def test_removing_a_measure_repairs_the_contexts_that_reach_into_it() -> None:
     hairpin: Hairpin = Hairpin.create(
         start=anchor_at(score=score, at=_Q),
         end=anchor_at(score=score, at=1 + _H),
-        voices=[score.voice],
+        voice=score.voice,
         steps=1,
     )
     Slur.create(
         start=anchor_at(score=score, at=Fraction(1)),
         end=anchor_at(score=score, at=Fraction(7, 4)),
-        voices=[score.voice],
+        voice=score.voice,
     )
     out_of: Slur = Slur.create(
         start=anchor_at(score=score, at=1 + _Q),
         end=anchor_at(score=score, at=2 + _H),
-        voices=[score.voice],
+        voice=score.voice,
     )
 
     apply_intent(score=score, intent=remove_measure(measure=score.measures[1]))
@@ -608,6 +610,36 @@ def test_removing_a_measure_repairs_the_contexts_that_reach_into_it() -> None:
         (measure, Fraction(beat, 4)) for measure in range(2) for beat in range(4)
     ]
     assert orphan_anchors(score=after) == []
+
+
+@pytest.mark.unit
+@_PENDING
+def test_removing_a_measure_keeps_a_dynamic_for_the_voice_that_still_has_it_in_force() -> None:
+    first, second = build_two_voices(measure_count=3)
+    for measure in range(3):
+        quarters(score=first, measure=measure)
+        quarters(score=second, measure=measure)
+    on_first: DynamicChange = DynamicChange.create(
+        start=anchor_at(score=first, at=_Q), voice=first.voice, dynamic=DynamicMarking.FORTE
+    )
+    on_second: DynamicChange = DynamicChange.create(
+        start=anchor_at(score=first, at=_Q), voice=second.voice, dynamic=DynamicMarking.FORTE
+    )
+    later_on_first: DynamicChange = DynamicChange.create(
+        start=anchor_at(score=first, at=Fraction(1)),
+        voice=first.voice,
+        dynamic=DynamicMarking.PIANO,
+    )
+
+    apply_intent(score=first, intent=remove_measure(measure=first.measures[0]))
+
+    # the first voice has another dynamic where the measure ends: the one in the measure goes;
+    # the second voice has none there: its dynamic stays, at the start of what is left
+    assert on_first not in first.voice.contexts
+    assert on_second in second.voice.contexts
+    assert on_second.start.measure is first.measures[1]
+    assert on_second.start.position == MEASURE_START
+    assert later_on_first in first.voice.contexts
 
 
 @pytest.mark.unit
@@ -645,7 +677,7 @@ def test_removing_the_last_remaining_measure_is_refused_and_changes_nothing() ->
     slur: Slur = Slur.create(
         start=anchor_at(score=score, at=Fraction(0)),
         end=anchor_at(score=score, at=_H),
-        voices=[score.voice],
+        voice=score.voice,
     )
     before: Snapshot = snapshot(score=score)
     contexts_before: list[ContextSlot] = context_layout(score=score)
@@ -715,12 +747,12 @@ def test_removing_the_last_measure_removes_its_clef_and_opens_the_slur_ending_in
     Slur.create(
         start=anchor_at(score=score, at=_Q),
         end=anchor_at(score=score, at=1 + _Q),
-        voices=[score.voice],
+        voice=score.voice,
     )
     kept: Slur = Slur.create(
         start=anchor_at(score=score, at=Fraction(0)),
         end=anchor_at(score=score, at=_H),
-        voices=[score.voice],
+        voice=score.voice,
     )
 
     apply_intent(score=score, intent=remove_measure(measure=score.measures[1]))
@@ -751,7 +783,7 @@ def test_a_span_context_whose_whole_time_lies_in_the_removed_measure_is_removed(
     Hairpin.create(
         start=anchor_at(score=score, at=1 + _Q),
         end=anchor_at(score=score, at=Fraction(2)),
-        voices=[score.voice],
+        voice=score.voice,
         steps=1,
     )
 
@@ -795,7 +827,7 @@ def test_undo_and_redo_of_a_removal_restore_each_side_with_its_contexts() -> Non
     slur: Slur = Slur.create(
         start=anchor_at(score=score, at=_Q),
         end=anchor_at(score=score, at=1 + _H),
-        voices=[score.voice],
+        voice=score.voice,
     )
     before: Snapshot = snapshot(score=score)
     contexts_before: list[ContextSlot] = context_layout(score=score)
@@ -1128,7 +1160,7 @@ def _crossing_contexts() -> tuple[Score, ClefChange, Slur]:
     slur: Slur = Slur.create(
         start=anchor_at(score=score, at=_Q),
         end=anchor_at(score=score, at=2 + _H),
-        voices=[score.voice],
+        voice=score.voice,
     )
 
     return score, clef, slur

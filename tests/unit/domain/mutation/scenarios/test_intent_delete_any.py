@@ -255,7 +255,7 @@ def test_a_slur_id_removes_the_slur_and_keeps_the_notes_it_spanned() -> None:
     slur: Slur = Slur.create(
         start=anchor_at(score=score, at=Fraction(0)),
         end=anchor_at(score=score, at=Fraction(3, 4)),
-        voices=[score.voice],
+        voice=score.voice,
     )
     before: Snapshot = snapshot(score=score)
     assert context_layout(score=score) == [("Slur", (0, Fraction(0)), (0, Fraction(3, 4)))]

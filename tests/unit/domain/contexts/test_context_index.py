@@ -157,10 +157,10 @@ def test_overlapping_spans_are_all_the_sources_of_the_piece_they_share() -> None
     document: ScoreDocument = _document()
     voice = document.voices[0]
     outer: Slur = Slur.create(
-        start=anchor(document, _ONE), end=anchor(document, _THREE - Fraction(1, 8)), voices=[voice]
+        start=anchor(document, _ONE), end=anchor(document, _THREE - Fraction(1, 8)), voice=voice
     )
     inner: Slur = Slur.create(
-        start=anchor(document, _TWO), end=anchor(document, Fraction(5, 2)), voices=[voice]
+        start=anchor(document, _TWO), end=anchor(document, Fraction(5, 2)), voice=voice
     )
 
     pieces: list[Piece[Slur | None, Slur]] = _index(document=document).pieces_over(
@@ -176,14 +176,17 @@ def test_overlapping_spans_are_all_the_sources_of_the_piece_they_share() -> None
     assert [piece.value for piece in pieces] == [outer, inner, outer]
 
 
-def test_a_context_on_several_voices_governs_each_up_to_that_voices_next_one() -> None:
+def test_each_voice_is_governed_by_its_own_dynamics() -> None:
     document: ScoreDocument = _document()
     first, second = document.voices
-    shared: DynamicChange = DynamicChange.create(
-        start=anchor(document, _ONE), voices=[first, second], dynamic=DynamicMarking.FORTE
+    on_first: DynamicChange = DynamicChange.create(
+        start=anchor(document, _ONE), voice=first, dynamic=DynamicMarking.FORTE
+    )
+    on_second: DynamicChange = DynamicChange.create(
+        start=anchor(document, _ONE), voice=second, dynamic=DynamicMarking.FORTE
     )
     own: DynamicChange = DynamicChange.create(
-        start=anchor(document, _TWO), voices=[first], dynamic=DynamicMarking.MEZZO_FORTE
+        start=anchor(document, _TWO), voice=first, dynamic=DynamicMarking.MEZZO_FORTE
     )
     index: ContextIndex = _index(document=document)
 
@@ -191,7 +194,7 @@ def test_a_context_on_several_voices_governs_each_up_to_that_voices_next_one() -
         index.piece_at(
             kind=DynamicChange, point=Fraction(3, 2), scope=Scope.of_voice(voice=first)
         ).value
-        is shared
+        is on_first
     )
     assert (
         index.piece_at(
@@ -203,7 +206,7 @@ def test_a_context_on_several_voices_governs_each_up_to_that_voices_next_one() -
         index.piece_at(
             kind=DynamicChange, point=Fraction(5, 2), scope=Scope.of_voice(voice=second)
         ).value
-        is shared
+        is on_second
     )
 
 
@@ -288,21 +291,22 @@ def test_the_region_of_a_point_runs_to_the_next_of_its_kind_and_of_a_span_to_its
     assert (index.region_of(context=line).start, index.region_of(context=line).end) == (_ONE, _TWO)
 
 
-def test_a_context_on_several_voices_is_governed_up_to_the_last_voice_it_stops_for() -> None:
+def test_a_context_of_one_voice_is_governed_up_to_that_voices_next_one() -> None:
     document: ScoreDocument = _document()
     first, second = document.voices
-    shared: DynamicChange = DynamicChange.create(
-        start=anchor(document, _ONE), voices=[first, second], dynamic=DynamicMarking.FORTE
+    on_first: DynamicChange = DynamicChange.create(
+        start=anchor(document, _ONE), voice=first, dynamic=DynamicMarking.FORTE
+    )
+    on_second: DynamicChange = DynamicChange.create(
+        start=anchor(document, _ONE), voice=second, dynamic=DynamicMarking.FORTE
     )
     DynamicChange.create(
-        start=anchor(document, _TWO), voices=[first], dynamic=DynamicMarking.MEZZO_FORTE
+        start=anchor(document, _TWO), voice=first, dynamic=DynamicMarking.MEZZO_FORTE
     )
     index: ContextIndex = _index(document=document)
 
-    assert index.region_of(context=shared).end == _THREE
-    assert index.governed_voices(context=shared, at=Fraction(5, 2)) == [second]
-    assert index.governed_voices(context=shared, at=Fraction(3, 2)) == [first, second]
-    assert index.governed_voices(context=shared, at=_THREE) == []
+    assert index.region_of(context=on_first).end == _TWO
+    assert index.region_of(context=on_second).end == _THREE
 
 
 def test_the_contexts_of_a_kind_come_by_where_they_start_and_all_of_them_in_measure_order() -> None:

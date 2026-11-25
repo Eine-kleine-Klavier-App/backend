@@ -494,7 +494,7 @@ def test_a_span_context_moves_its_start_and_end_keeping_itself() -> None:
     slur: Slur = Slur.create(
         start=anchor_at(score=score, at=Fraction(0)),
         end=anchor_at(score=score, at=Fraction(1, 2)),
-        voices=[score.voice],
+        voice=score.voice,
     )
     old_end: TemporalAnchor = slur.end
 
@@ -516,7 +516,7 @@ def test_a_span_context_start_must_stay_before_its_end(at: Fraction) -> None:
     slur: Slur = Slur.create(
         start=anchor_at(score=score, at=Fraction(0)),
         end=anchor_at(score=score, at=Fraction(1, 2)),
-        voices=[score.voice],
+        voice=score.voice,
     )
 
     with pytest.raises(ValueError, match="Start must precede end"):
@@ -534,7 +534,7 @@ def test_a_span_context_end_must_stay_after_its_start(at: Fraction) -> None:
     slur: Slur = Slur.create(
         start=anchor_at(score=score, at=Fraction(1, 4)),
         end=anchor_at(score=score, at=Fraction(1, 2)),
-        voices=[score.voice],
+        voice=score.voice,
     )
 
     with pytest.raises(ValueError, match="Start must precede end"):

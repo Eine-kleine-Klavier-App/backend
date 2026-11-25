@@ -14,7 +14,7 @@ from piano_app.domain.score.document.models.context import (
 )
 from piano_app.domain.score.document.models.material import Note
 from piano_app.domain.score.document.models.notation import DynamicMarking
-from piano_app.domain.score.document.models.structural import MeasurePosition
+from piano_app.domain.score.document.models.structural import MeasurePosition, Voice
 from piano_app.domain.score.document.services.contexts import ContextIndex
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
 from piano_app.domain.score.document.services.mutation import build_compiler, build_engine
@@ -121,7 +121,7 @@ def test_a_hairpin_to_a_target_dynamic_climbs_as_many_levels_as_lie_between() ->
 
     (hairpin,) = _contexts(document=document, kind=Hairpin)
     assert hairpin.steps == DynamicMarking.FORTE.level - _INITIAL_DYNAMIC.level
-    assert hairpin.voices == [document.voices[0]]
+    assert hairpin.voice is document.voices[0]
     assert document.measures.index(hairpin.start.measure) == 1
     assert document.measures.index(hairpin.end.measure) == 2
 
@@ -129,19 +129,55 @@ def test_a_hairpin_to_a_target_dynamic_climbs_as_many_levels_as_lie_between() ->
     assert _contexts(document=document, kind=Hairpin) == []
 
 
-def test_a_hairpin_for_voices_that_start_at_different_dynamics_is_refused() -> None:
+def test_a_hairpin_for_voices_that_start_at_different_dynamics_climbs_from_each_start() -> None:
     document: ScoreDocument = score()
+    first, second = document.voices
     _run(
         document=document,
         intent=SetDynamicIntent(
             measure_id=document.measures[1].id,
             position=_START,
-            voice_ids=(document.voices[0].id,),
+            voice_ids=(first.id,),
             dynamic=DynamicMarking.FORTE,
         ),
     )
 
-    with pytest.raises(MutationRejectedError, match="start at the same dynamic"):
+    log: MutationLog = _run(
+        document=document,
+        intent=CreateHairpinIntent(
+            start_measure_id=document.measures[1].id,
+            start_position=_START,
+            end_measure_id=document.measures[2].id,
+            end_position=_START,
+            voice_ids=(first.id, second.id),
+            target=DynamicMarking.FORTISSIMO,
+        ),
+    )
+
+    hairpins: dict[Voice, Hairpin] = {
+        hairpin.voice: hairpin for hairpin in _contexts(document=document, kind=Hairpin)
+    }
+    assert hairpins[first].steps == DynamicMarking.FORTISSIMO.level - DynamicMarking.FORTE.level
+    assert hairpins[second].steps == DynamicMarking.FORTISSIMO.level - _INITIAL_DYNAMIC.level
+
+    log.rollback()
+    assert _contexts(document=document, kind=Hairpin) == []
+
+
+def test_a_hairpin_that_would_change_nothing_for_one_voice_is_refused_for_all() -> None:
+    document: ScoreDocument = score()
+    first, second = document.voices
+    _run(
+        document=document,
+        intent=SetDynamicIntent(
+            measure_id=document.measures[1].id,
+            position=_START,
+            voice_ids=(first.id,),
+            dynamic=DynamicMarking.FORTE,
+        ),
+    )
+
+    with pytest.raises(MutationRejectedError, match="must change the dynamic"):
         _run(
             document=document,
             intent=CreateHairpinIntent(
@@ -149,8 +185,8 @@ def test_a_hairpin_for_voices_that_start_at_different_dynamics_is_refused() -> N
                 start_position=_START,
                 end_measure_id=document.measures[2].id,
                 end_position=_START,
-                voice_ids=tuple(voice.id for voice in document.voices),
-                target=DynamicMarking.FORTISSIMO,
+                voice_ids=(first.id, second.id),
+                target=DynamicMarking.FORTE,
             ),
         )
 
@@ -173,7 +209,7 @@ def test_a_new_target_of_a_hairpin_changes_the_levels_it_climbs() -> None:
 
     log: MutationLog = _run(
         document=document,
-        intent=SetHairpinTargetIntent(hairpin_id=hairpin.id, target=DynamicMarking.MEZZO_FORTE),
+        intent=SetHairpinTargetIntent(hairpin_ids=(hairpin.id,), target=DynamicMarking.MEZZO_FORTE),
     )
 
     assert hairpin.steps == DynamicMarking.MEZZO_FORTE.level - _INITIAL_DYNAMIC.level
@@ -191,13 +227,13 @@ def test_a_new_target_of_a_hairpin_at_the_dynamic_it_starts_at_is_refused() -> N
     with pytest.raises(MutationRejectedError, match="must change the dynamic"):
         _run(
             document=document,
-            intent=SetHairpinTargetIntent(hairpin_id=hairpin.id, target=_INITIAL_DYNAMIC),
+            intent=SetHairpinTargetIntent(hairpin_ids=(hairpin.id,), target=_INITIAL_DYNAMIC),
         )
 
     assert hairpin.steps == steps
 
 
-def test_a_slur_is_put_over_the_voices_it_names() -> None:
+def test_a_slur_is_put_over_each_voice_it_names() -> None:
     document: ScoreDocument = score()
 
     log: MutationLog = _run(
@@ -207,21 +243,41 @@ def test_a_slur_is_put_over_the_voices_it_names() -> None:
             start_position=_START,
             end_measure_id=document.measures[2].id,
             end_position=_START,
-            voice_ids=(document.voices[0].id,),
+            voice_ids=tuple(voice.id for voice in document.voices),
         ),
     )
 
-    (slur,) = _contexts(document=document, kind=Slur)
-    assert slur.voices == [document.voices[0]]
-    assert (
-        document.measures.index(slur.start.measure),
-        document.measures.index(slur.end.measure),
-    ) == (
-        1,
-        2,
-    )
+    slurs: list[Slur] = _contexts(document=document, kind=Slur)
+    assert [slur.voice for slur in slurs] == list(document.voices)
+    assert {
+        (
+            document.measures.index(slur.start.measure),
+            document.measures.index(slur.end.measure),
+        )
+        for slur in slurs
+    } == {(1, 2)}
 
     log.rollback()
+    assert _contexts(document=document, kind=Slur) == []
+
+
+def test_a_mark_names_at_least_one_voice_each_once() -> None:
+    document: ScoreDocument = score()
+    first: str = document.voices[0].id
+
+    for voice_ids in ((), (first, first)):
+        with pytest.raises(MutationRejectedError, match="at least one voice, each once"):
+            _run(
+                document=document,
+                intent=CreateSlurIntent(
+                    start_measure_id=document.measures[1].id,
+                    start_position=_START,
+                    end_measure_id=document.measures[2].id,
+                    end_position=_START,
+                    voice_ids=voice_ids,
+                ),
+            )
+
     assert _contexts(document=document, kind=Slur) == []
 
 
@@ -513,7 +569,7 @@ def test_moving_the_end_of_a_sustain_hold_over_the_next_one_is_refused() -> None
         _run(
             document=document,
             intent=MoveContextEndIntent(
-                context_id=first.id,
+                context_ids=(first.id,),
                 measure_id=document.measures[1].id,
                 position=_BEAT_TWO,
                 mode=PitchEditMode.PRESERVE_STEP,
@@ -533,7 +589,7 @@ def test_moving_the_start_of_a_sustain_hold_over_the_last_one_is_refused() -> No
         _run(
             document=document,
             intent=MoveContextStartIntent(
-                context_id=second.id,
+                context_ids=(second.id,),
                 measure_id=document.measures[0].id,
                 position=_BEAT_TWO,
                 mode=PitchEditMode.PRESERVE_STEP,
@@ -590,7 +646,7 @@ def test_moving_the_start_of_a_span_to_the_end_of_a_measure_is_refused(
         _run(
             document=document,
             intent=MoveContextStartIntent(
-                context_id=span.id,
+                context_ids=(span.id,),
                 measure_id=document.measures[1].id,
                 position=_END_OF_MEASURE,
                 mode=PitchEditMode.PRESERVE_STEP,
@@ -613,7 +669,7 @@ def test_moving_the_end_of_a_span_to_the_end_of_a_measure_is_refused(
         _run(
             document=document,
             intent=MoveContextEndIntent(
-                context_id=span.id,
+                context_ids=(span.id,),
                 measure_id=document.measures[2].id,
                 position=_END_OF_MEASURE,
                 mode=PitchEditMode.PRESERVE_STEP,

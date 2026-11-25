@@ -703,13 +703,13 @@ def test_the_elements_and_contexts_moved_by_the_change_keep_their_identity() -> 
     hairpin: Hairpin = Hairpin.create(
         start=anchor_at(score=score, at=_Q),
         end=anchor_at(score=score, at=1 + 3 * _Q),
-        voices=[score.voice],
+        voice=score.voice,
         steps=1,
     )
     slur: Slur = Slur.create(
         start=anchor_at(score=score, at=1 + _H),
         end=anchor_at(score=score, at=2 + _H),
-        voices=[score.voice],
+        voice=score.voice,
     )
     leaves: list[LeafRhythmicContainer] = iter_leaves(score.voice)
     clef_anchor: TemporalAnchor = clef.start
@@ -810,7 +810,7 @@ def test_undo_and_redo_of_a_time_signature_change_restore_each_side_exactly() ->
     Slur.create(
         start=anchor_at(score=score, at=_Q),
         end=anchor_at(score=score, at=1 + _H),
-        voices=[score.voice],
+        voice=score.voice,
     )
     before: Snapshot = snapshot(score=score)
     contexts_before: list[ContextSlot] = context_layout(score=score)
@@ -1295,7 +1295,7 @@ def test_a_hairpin_ending_on_the_selection_end_keeps_its_time_from_the_selection
     hairpin: Hairpin = Hairpin.create(
         start=anchor_at(score=score, at=_Q),
         end=anchor_at(score=score, at=Fraction(1)),
-        voices=[score.voice],
+        voice=score.voice,
         steps=-1,
     )
     barline: TemporalAnchor = hairpin.end
@@ -1330,7 +1330,7 @@ def test_a_slur_from_before_the_selection_ending_on_its_end_keeps_that_time(
     Slur.create(
         start=anchor_at(score=score, at=_H),
         end=anchor_at(score=score, at=Fraction(2)),
-        voices=[score.voice],
+        voice=score.voice,
     )
 
     apply_intent(

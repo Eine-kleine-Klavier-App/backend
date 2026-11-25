@@ -24,7 +24,6 @@ from piano_app.domain.score.document.services.mutation.compiler import (
     MoveContextEndIntent,
     MoveContextStartIntent,
     PitchEditMode,
-    RemoveContextVoiceIntent,
     SetClefIntent,
     SetDynamicIntent,
     SetKeySignatureIntent,
@@ -320,14 +319,14 @@ def test_a_dynamic_set_for_one_voice_leaves_the_other_voices_alone() -> None:
         for dynamic in _contexts(document=document, kind=DynamicChange)
         if _place(document=document, context=dynamic) == (1, 0)
     ]
-    assert [(dynamic.dynamic, dynamic.voices) for dynamic in set_here] == [
-        (DynamicMarking.FORTE, [document.voices[0]])
+    assert [(dynamic.dynamic, dynamic.voice) for dynamic in set_here] == [
+        (DynamicMarking.FORTE, document.voices[0])
     ]
-    # the dynamic every voice starts with, and the new one
-    assert len(_contexts(document=document, kind=DynamicChange)) == 2
+    # the dynamic each voice starts with, and the new one
+    assert len(_contexts(document=document, kind=DynamicChange)) == 3
 
 
-def test_a_dynamic_set_over_one_sharing_a_voice_takes_that_voice_from_it() -> None:
+def test_a_dynamic_set_over_one_of_the_same_voice_replaces_it_and_leaves_the_other_voices() -> None:
     document: ScoreDocument = score()
     both: tuple[str, ...] = tuple(voice.id for voice in document.voices)
     _run(
@@ -355,19 +354,13 @@ def test_a_dynamic_set_over_one_sharing_a_voice_takes_that_voice_from_it() -> No
         for dynamic in _contexts(document=document, kind=DynamicChange)
         if _place(document=document, context=dynamic) == (1, 0)
     ]
-    assert sorted((dynamic.dynamic.value, len(dynamic.voices)) for dynamic in set_here) == [
-        ("f", 1),
-        ("p", 1),
-    ]
-    owners: dict[str, list[int]] = {
-        dynamic.dynamic.value: [document.voices.index(voice) for voice in dynamic.voices]
-        for dynamic in set_here
+    owners: dict[str, int] = {
+        dynamic.dynamic.value: document.voices.index(dynamic.voice) for dynamic in set_here
     }
-    assert owners == {"f": [1], "p": [0]}
+    assert owners == {"f": 1, "p": 0}
 
 
-def test_a_voice_removed_from_a_dynamic_leaves_the_dynamic_and_its_other_voices() -> None:
-    document: ScoreDocument = score()
+def _dynamics_on_both_voices(*, document: ScoreDocument) -> list[DynamicChange]:
     _run(
         document=document,
         intent=SetDynamicIntent(
@@ -377,68 +370,61 @@ def test_a_voice_removed_from_a_dynamic_leaves_the_dynamic_and_its_other_voices(
             dynamic=DynamicMarking.FORTE,
         ),
     )
-    shared: DynamicChange = _contexts(document=document, kind=DynamicChange)[1]
+
+    return [
+        dynamic
+        for dynamic in _contexts(document=document, kind=DynamicChange)
+        if _place(document=document, context=dynamic) == (1, 0)
+    ]
+
+
+def test_the_dynamics_of_both_voices_are_moved_together() -> None:
+    document: ScoreDocument = score()
+    both: list[DynamicChange] = _dynamics_on_both_voices(document=document)
 
     log: MutationLog = _run(
         document=document,
-        intent=RemoveContextVoiceIntent(context_id=shared.id, voice_id=document.voices[0].id),
+        intent=MoveContextStartIntent(
+            context_ids=tuple(dynamic.id for dynamic in both),
+            measure_id=document.measures[1].id,
+            position=_BEAT_TWO,
+            mode=PitchEditMode.PRESERVE_STEP,
+        ),
     )
 
-    assert shared.voices == [document.voices[1]]
+    assert [_place(document=document, context=dynamic) for dynamic in both] == [
+        (1, Fraction(1, 4))
+    ] * 2
 
     log.rollback()
-    assert shared.voices == list(document.voices)
+    assert [_place(document=document, context=dynamic) for dynamic in both] == [(1, 0)] * 2
 
 
-def test_a_voice_cannot_be_removed_from_a_dynamic_in_the_ways_that_would_lose_one() -> None:
+def test_a_move_that_meets_a_dynamic_of_one_voice_refuses_the_dynamics_of_both() -> None:
     document: ScoreDocument = score()
+    both: list[DynamicChange] = _dynamics_on_both_voices(document=document)
     _run(
         document=document,
         intent=SetDynamicIntent(
             measure_id=document.measures[1].id,
-            position=_START,
-            voice_ids=(document.voices[1].id,),
-            dynamic=DynamicMarking.FORTE,
+            position=_BEAT_TWO,
+            voice_ids=(document.voices[0].id,),
+            dynamic=DynamicMarking.PIANO,
         ),
     )
-    only_second: DynamicChange = _contexts(document=document, kind=DynamicChange)[1]
-    assert only_second.voices == [document.voices[1]]
 
-    with pytest.raises(MutationRejectedError, match="does not belong"):
+    with pytest.raises(MutationRejectedError, match="of the same kind already starts there"):
         _run(
             document=document,
-            intent=RemoveContextVoiceIntent(
-                context_id=only_second.id, voice_id=document.voices[0].id
+            intent=MoveContextStartIntent(
+                context_ids=tuple(dynamic.id for dynamic in both),
+                measure_id=document.measures[1].id,
+                position=_BEAT_TWO,
+                mode=PitchEditMode.PRESERVE_STEP,
             ),
         )
 
-    with pytest.raises(MutationRejectedError, match="at least one voice"):
-        _run(
-            document=document,
-            intent=RemoveContextVoiceIntent(
-                context_id=only_second.id, voice_id=document.voices[1].id
-            ),
-        )
-
-    _run(
-        document=document,
-        intent=SetDynamicIntent(
-            measure_id=document.measures[0].id,
-            position=_START,
-            voice_ids=tuple(voice.id for voice in document.voices),
-            dynamic=DynamicMarking.FORTE,
-        ),
-    )
-    shared_at_start: DynamicChange = _contexts(document=document, kind=DynamicChange)[0]
-    assert shared_at_start.voices == list(document.voices)
-
-    with pytest.raises(MutationRejectedError, match="start of the score"):
-        _run(
-            document=document,
-            intent=RemoveContextVoiceIntent(
-                context_id=shared_at_start.id, voice_id=document.voices[0].id
-            ),
-        )
+    assert [_place(document=document, context=dynamic) for dynamic in both] == [(1, 0)] * 2
 
 
 def test_a_clef_moved_keeping_the_pitch_keeps_what_the_notes_after_it_sound_like() -> None:
@@ -456,7 +442,7 @@ def test_a_clef_moved_keeping_the_pitch_keeps_what_the_notes_after_it_sound_like
     _run(
         document=document,
         intent=MoveContextStartIntent(
-            context_id=clef.id,
+            context_ids=(clef.id,),
             measure_id=document.measures[1].id,
             position=_BEAT_TWO,
             mode=PitchEditMode.PRESERVE_PITCH,
@@ -475,7 +461,7 @@ def test_the_context_at_the_start_of_the_score_cannot_be_moved() -> None:
         _run(
             document=document,
             intent=MoveContextStartIntent(
-                context_id=initial.id,
+                context_ids=(initial.id,),
                 measure_id=document.measures[1].id,
                 position=_START,
                 mode=PitchEditMode.PRESERVE_STEP,
@@ -494,7 +480,7 @@ def _slur(*, document: ScoreDocument) -> Slur:
                 start_position=_START,
                 end_measure=document.measures[1],
                 end_position=_BEAT_TWO,
-                voices=(document.voices[0],),
+                voice=document.voices[0],
             )
         ],
     )
@@ -510,7 +496,7 @@ def test_the_end_of_a_span_is_moved_to_the_new_place() -> None:
     log: MutationLog = _run(
         document=document,
         intent=MoveContextEndIntent(
-            context_id=slur.id,
+            context_ids=(slur.id,),
             measure_id=document.measures[2].id,
             position=_START,
             mode=PitchEditMode.PRESERVE_STEP,
@@ -535,7 +521,7 @@ def test_the_end_of_a_span_cannot_be_moved_to_where_it_starts_or_before() -> Non
         _run(
             document=document,
             intent=MoveContextEndIntent(
-                context_id=slur.id,
+                context_ids=(slur.id,),
                 measure_id=document.measures[1].id,
                 position=_START,
                 mode=PitchEditMode.PRESERVE_STEP,

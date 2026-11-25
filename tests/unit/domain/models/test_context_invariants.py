@@ -5,7 +5,6 @@ import pytest
 from piano_app.domain.score.document.models.context import (
     NO_ACCIDENTALS,
     ClefChange,
-    DynamicChange,
     Hairpin,
     KeySignatureChange,
     OctaveTransposition,
@@ -208,9 +207,7 @@ def test_hairpin_direction_follows_the_sign_of_its_steps(
     steps: int,
     expected: HairpinType,
 ) -> None:
-    hairpin: Hairpin = Hairpin.create(
-        start=anchor, end=another_anchor, voices=[Voice()], steps=steps
-    )
+    hairpin: Hairpin = Hairpin.create(start=anchor, end=another_anchor, voice=Voice(), steps=steps)
 
     assert (hairpin.steps, hairpin.hairpin_type) == (steps, expected)
 
@@ -218,14 +215,14 @@ def test_hairpin_direction_follows_the_sign_of_its_steps(
 @pytest.mark.unit
 def test_hairpin_rejects_zero_steps(anchor: TemporalAnchor, another_anchor: TemporalAnchor) -> None:
     with pytest.raises(ValueError, match="at least one level"):
-        Hairpin.create(start=anchor, end=another_anchor, voices=[Voice()], steps=0)
+        Hairpin.create(start=anchor, end=another_anchor, voice=Voice(), steps=0)
 
 
 @pytest.mark.unit
 def test_hairpin_steps_are_changed_in_place_and_never_to_zero(
     anchor: TemporalAnchor, another_anchor: TemporalAnchor
 ) -> None:
-    hairpin: Hairpin = Hairpin.create(start=anchor, end=another_anchor, voices=[Voice()], steps=2)
+    hairpin: Hairpin = Hairpin.create(start=anchor, end=another_anchor, voice=Voice(), steps=2)
 
     hairpin.set_steps(steps=-3)
     assert (hairpin.steps, hairpin.hairpin_type) == (-3, HairpinType.DIMINUENDO)
@@ -326,78 +323,19 @@ def test_dynamic_marking_at_a_level_is_held_to_the_scale(
     assert DynamicMarking.at_level(level) is expected
 
 
-# --- Voices*Context: non-empty, unique voices -------------------------------------------
+# --- Voice*Context: one voice ------------------------------------------------------------
 
 
 @pytest.mark.unit
-def test_dynamic_change_rejects_an_empty_voice_scope(anchor: TemporalAnchor) -> None:
-    with pytest.raises(ValueError, match="at least one voice"):
-        DynamicChange.create(start=anchor, voices=[], dynamic=DynamicMarking.FORTE)
-
-
-@pytest.mark.unit
-def test_dynamic_change_rejects_a_repeated_voice(anchor: TemporalAnchor) -> None:
-    voice: Voice = Voice()
-    with pytest.raises(ValueError, match="not repeat a voice"):
-        DynamicChange.create(start=anchor, voices=[voice, voice], dynamic=DynamicMarking.FORTE)
-
-
-@pytest.mark.unit
-def test_hairpin_rejects_an_empty_voice_scope(
-    anchor: TemporalAnchor,
-    another_anchor: TemporalAnchor,
-) -> None:
-    with pytest.raises(ValueError, match="at least one voice"):
-        Hairpin.create(
-            start=anchor,
-            end=another_anchor,
-            voices=[],
-            steps=-1,
-        )
-
-
-@pytest.mark.unit
-def test_hairpin_still_rejects_identical_start_and_end_via_the_voices_chain(
+def test_hairpin_still_rejects_identical_start_and_end_via_the_voice_chain(
     anchor: TemporalAnchor,
 ) -> None:
-    """VoicesSpanContext.__post_init__ must chain to SpanContext's own check too."""
+    """VoiceSpanContext.__post_init__ must chain to SpanContext's own check too."""
     voice: Voice = Voice()
     with pytest.raises(ValueError, match="must precede end"):
         Hairpin.create(
             start=anchor,
             end=anchor,
-            voices=[voice],
+            voice=voice,
             steps=1,
         )
-
-
-@pytest.mark.unit
-def test_a_context_changes_its_voices_keeping_itself(anchor: TemporalAnchor) -> None:
-    first, second, third = Voice(), Voice(), Voice()
-    dynamic: DynamicChange = DynamicChange.create(
-        start=anchor, voices=[first, second], dynamic=DynamicMarking.FORTE
-    )
-
-    dynamic.set_voices(voices=[second, third])
-
-    assert dynamic.voices == [second, third]
-    assert dynamic not in first.contexts
-    assert dynamic in second.contexts and dynamic in third.contexts
-
-
-@pytest.mark.unit
-def test_a_context_cannot_be_left_without_voices_or_with_a_repeated_one(
-    anchor: TemporalAnchor,
-) -> None:
-    voice: Voice = Voice()
-    dynamic: DynamicChange = DynamicChange.create(
-        start=anchor, voices=[voice], dynamic=DynamicMarking.FORTE
-    )
-
-    with pytest.raises(ValueError, match="at least one voice"):
-        dynamic.set_voices(voices=[])
-
-    with pytest.raises(ValueError, match="not repeat a voice"):
-        dynamic.set_voices(voices=[voice, voice])
-
-    assert dynamic.voices == [voice] and dynamic in voice.contexts

@@ -184,7 +184,7 @@ def test_a_context_that_comes_goes_or_moves_is_told_as_a_context_event() -> None
         step=1,
     )
     dynamic: DynamicChange = DynamicChange.create(
-        start=leaf.anchor, voices=[score.voice], dynamic=DynamicMarking.FORTE
+        start=leaf.anchor, voice=score.voice, dynamic=DynamicMarking.FORTE
     )
     clef: ClefChange = next(
         context for context in score.staff.contexts if isinstance(context, ClefChange)
@@ -195,10 +195,8 @@ def test_a_context_that_comes_goes_or_moves_is_told_as_a_context_event() -> None
     layer.on_list(leaf.anchor, "_starting_contexts", dynamic, True)
     layer.on_list(leaf.anchor, "_ending_contexts", dynamic, True)
     layer.on_set(dynamic, "_start", None)
-    layer.on_set(dynamic, "_voices", None)
 
     assert [(name, event, subject) for name, event, subject in told if name == "first"] == [
-        ("first", "context", dynamic),
         ("first", "context", dynamic),
         ("first", "context", dynamic),
         ("first", "context", dynamic),

@@ -1,5 +1,5 @@
-"""Moving the start or the end of a context, or changing its voices, meets the same clashes as
-creating it; creating at a taken place displaces by the policy of the kind."""
+"""Moving the start or the end of a context meets the same clashes as creating it; creating at
+a taken place displaces by the policy of the kind."""
 
 from dataclasses import dataclass
 from fractions import Fraction
@@ -19,7 +19,7 @@ from piano_app.domain.score.document.models.context import (
     SustainHold,
     TempoChange,
     TempoTransition,
-    VoicesScoped,
+    VoiceScoped,
 )
 from piano_app.domain.score.document.models.notation import (
     Clef,
@@ -45,7 +45,6 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.con
     CreateTempoTransitionRequest,
     UpdateContextEndRequest,
     UpdateContextStartRequest,
-    UpdateContextVoicesRequest,
 )
 
 from ..scene import build_engine
@@ -97,9 +96,7 @@ class _World:
                 type(context).__name__,
                 context.start.position.value,
                 context.end.position.value if isinstance(context, SpanContext) else None,
-                tuple(self.voices.index(voice) for voice in context.voices)
-                if isinstance(context, VoicesScoped)
-                else (),
+                (self.voices.index(context.voice),) if isinstance(context, VoiceScoped) else (),
             )
             for anchor in self.measure.anchors
             for context in anchor.starting_contexts
@@ -118,16 +115,17 @@ class _World:
         )
 
     def hairpin(self, start: int, end: int, voices: tuple[int, ...]) -> None:
-        self.process(
-            CreateHairpinRequest(
-                start_measure=self.measure,
-                start_position=_at(start),
-                end_measure=self.measure,
-                end_position=_at(end),
-                voices=tuple(self.voices[index] for index in voices),
-                steps=1,
+        for index in voices:
+            self.process(
+                CreateHairpinRequest(
+                    start_measure=self.measure,
+                    start_position=_at(start),
+                    end_measure=self.measure,
+                    end_position=_at(end),
+                    voice=self.voices[index],
+                    steps=1,
+                )
             )
-        )
 
     def transition(self, start: int, end: int) -> None:
         self.process(
@@ -151,25 +149,27 @@ class _World:
         )
 
     def slur(self, start: int, end: int, voices: tuple[int, ...]) -> None:
-        self.process(
-            CreateSlurRequest(
-                start_measure=self.measure,
-                start_position=_at(start),
-                end_measure=self.measure,
-                end_position=_at(end),
-                voices=tuple(self.voices[index] for index in voices),
+        for index in voices:
+            self.process(
+                CreateSlurRequest(
+                    start_measure=self.measure,
+                    start_position=_at(start),
+                    end_measure=self.measure,
+                    end_position=_at(end),
+                    voice=self.voices[index],
+                )
             )
-        )
 
     def dynamic(self, beat: int, voices: tuple[int, ...]) -> None:
-        self.process(
-            CreateDynamicChangeRequest(
-                measure=self.measure,
-                position=_at(beat),
-                voices=tuple(self.voices[index] for index in voices),
-                dynamic=DynamicMarking.FORTE,
+        for index in voices:
+            self.process(
+                CreateDynamicChangeRequest(
+                    measure=self.measure,
+                    position=_at(beat),
+                    voice=self.voices[index],
+                    dynamic=DynamicMarking.FORTE,
+                )
             )
-        )
 
     def tempo(self, beat: int, bpm: int = 100) -> None:
         self.process(
@@ -196,8 +196,8 @@ class _World:
         )
 
     def request(self, action: tuple[object, ...]) -> MutationRequest:
-        """The edit an action names: ``("start", kind, n, beat)``, ``("end", kind, n, beat)`` or
-        ``("voices", kind, n, voice indices)``, on the n-th context of that kind."""
+        """The edit an action names: ``("start", kind, n, beat)`` or ``("end", kind, n, beat)``,
+        on the n-th context of that kind."""
         verb, kind, index, argument = action
         assert isinstance(kind, type) and issubclass(kind, Context)
         assert isinstance(index, int)
@@ -208,16 +208,9 @@ class _World:
                 target=target, measure=self.measure, position=_at(argument)
             )
 
-        if verb == "end":
-            assert isinstance(argument, int) and isinstance(target, SpanContext)
-            return UpdateContextEndRequest(
-                target=target, measure=self.measure, position=_at(argument)
-            )
-
-        assert isinstance(argument, tuple) and isinstance(target, VoicesScoped)
-        return UpdateContextVoicesRequest(
-            target=target, voices=tuple(self.voices[number] for number in argument)
-        )
+        assert verb == "end"
+        assert isinstance(argument, int) and isinstance(target, SpanContext)
+        return UpdateContextEndRequest(target=target, measure=self.measure, position=_at(argument))
 
 
 _OVERLAP: str = "cannot overlap another"
@@ -267,28 +260,10 @@ _CASES: list[tuple[list[tuple[object, ...]], tuple[object, ...], str | None]] = 
     ([("key", 0), ("key", 2)], ("start", KeySignatureChange, 1, 0), _SAME_PLACE),
     ([("tempo", 0), ("tempo", 2)], ("start", TempoChange, 1, 0), _SAME_PLACE),
     ([("dynamic", 0, (0,)), ("dynamic", 2, (0,))], ("start", DynamicChange, 1, 0), _SAME_PLACE),
-    # the voices change
-    (
-        [("hairpin", 0, 2, (0,)), ("hairpin", 0, 2, (1,))],
-        ("voices", Hairpin, 1, (1, 0)),
-        _OVERLAP,
-    ),
-    (
-        [("hairpin", 0, 3, (0,)), ("dynamic", 1, (1,))],
-        ("voices", Hairpin, 0, (0, 1)),
-        "cannot hold a DynamicChange strictly inside",
-    ),
-    (
-        [("dynamic", 1, (0,)), ("dynamic", 1, (1,))],
-        ("voices", DynamicChange, 0, (0, 1)),
-        _SAME_PLACE,
-    ),
-    (
-        [("hairpin", 0, 3, (1,)), ("dynamic", 1, (0,))],
-        ("voices", DynamicChange, 0, (0, 1)),
-        "cannot be placed inside a Hairpin",
-    ),
-    ([("slur", 0, 2, (0,)), ("slur", 0, 2, (1,))], ("voices", Slur, 1, (1, 0)), None),
+    # the voices have their own contexts: one voice's context does not meet another voice's
+    ([("hairpin", 0, 2, (0,)), ("hairpin", 0, 2, (1,))], ("end", Hairpin, 1, 3), None),
+    ([("dynamic", 1, (0,)), ("dynamic", 2, (1,))], ("start", DynamicChange, 1, 1), None),
+    ([("hairpin", 0, 3, (1,)), ("dynamic", 1, (0,))], ("start", DynamicChange, 0, 2), None),
 ]
 
 
@@ -318,7 +293,9 @@ def test_an_edit_meets_the_clashes_creation_meets(
 
 
 @pytest.mark.unit
-def test_a_dynamic_created_over_a_shared_voice_takes_that_voice_from_the_old_one() -> None:
+def test_a_dynamic_created_over_one_of_the_same_voice_replaces_it_and_leaves_the_other_voice() -> (
+    None
+):
     world: _World = _World.create()
     world.dynamic(1, (0, 1))
 

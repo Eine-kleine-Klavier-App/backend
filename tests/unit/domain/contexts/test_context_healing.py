@@ -127,10 +127,8 @@ def test_an_anchor_moved_carries_the_contexts_that_start_and_end_on_it() -> None
     score: Score = live.score
     start = anchor_at(score=score, at=Fraction(1))
     end = anchor_at(score=score, at=Fraction(5, 2))
-    Hairpin.create(start=start, end=end, voices=[score.voice], steps=1, sink=live.log)
-    DynamicChange.create(
-        start=end, voices=[score.voice], dynamic=DynamicMarking.FORTE, sink=live.log
-    )
+    Hairpin.create(start=start, end=end, voice=score.voice, steps=1, sink=live.log)
+    DynamicChange.create(start=end, voice=score.voice, dynamic=DynamicMarking.FORTE, sink=live.log)
     assert live.differences() == []
 
     end.move_to(

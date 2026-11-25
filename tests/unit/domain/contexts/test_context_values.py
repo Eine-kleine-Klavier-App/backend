@@ -45,14 +45,14 @@ def _transition(score: Score, start: Fraction, end: Fraction, ratio: Fraction) -
 
 
 def _dynamic(score: Score, at: Fraction, dynamic: DynamicMarking) -> None:
-    DynamicChange.create(start=anchor_at(score=score, at=at), voices=[score.voice], dynamic=dynamic)
+    DynamicChange.create(start=anchor_at(score=score, at=at), voice=score.voice, dynamic=dynamic)
 
 
 def _hairpin(score: Score, start: Fraction, end: Fraction, steps: int) -> Hairpin:
     return Hairpin.create(
         start=anchor_at(score=score, at=start),
         end=anchor_at(score=score, at=end),
-        voices=[score.voice],
+        voice=score.voice,
         steps=steps,
     )
 
@@ -253,16 +253,17 @@ def test_the_dynamic_after_a_hairpin_is_its_end_until_the_next_dynamic() -> None
 
 
 @pytest.mark.unit
-def test_each_voice_has_its_own_dynamic_and_a_shared_context_serves_both() -> None:
+def test_each_voice_has_its_own_dynamic() -> None:
     first, second = build_two_voices(measure_count=3)
-    DynamicChange.create(
-        start=anchor_at(score=first, at=Fraction(1)),
-        voices=[first.voice, second.voice],
-        dynamic=DynamicMarking.FORTE,
-    )
+    for voice in (first.voice, second.voice):
+        DynamicChange.create(
+            start=anchor_at(score=first, at=Fraction(1)),
+            voice=voice,
+            dynamic=DynamicMarking.FORTE,
+        )
     DynamicChange.create(
         start=anchor_at(score=first, at=Fraction(2)),
-        voices=[first.voice],
+        voice=first.voice,
         dynamic=DynamicMarking.MEZZO_PIANO,
     )
 
@@ -278,7 +279,7 @@ def test_a_hairpin_of_other_voices_does_not_move_this_voice() -> None:
     hairpin: Hairpin = Hairpin.create(
         start=anchor_at(score=first, at=Fraction(1)),
         end=anchor_at(score=first, at=Fraction(2)),
-        voices=[second.voice],
+        voice=second.voice,
         steps=3,
     )
 
