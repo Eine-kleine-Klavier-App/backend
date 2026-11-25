@@ -21,7 +21,7 @@ def test_the_view_gives_a_slur_its_two_edges_and_their_sideways_moves() -> None:
     slur: Slur = Slur.create(
         start=anchor(document, Fraction(1)),
         end=anchor(document, Fraction(3, 2)),
-        voices=[document.voices[0]],
+        voice=document.voices[0],
     )
     lower = PresentationTarget(entity_id=slur.id, reference=ReferencePoint.LOWER_EDGE)
     document.presentation.set_horizontal(target=lower, value=HorizontalOffset(value=-0.5))

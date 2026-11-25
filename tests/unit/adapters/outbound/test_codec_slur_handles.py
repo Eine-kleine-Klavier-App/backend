@@ -24,7 +24,7 @@ def _with_a_shaped_slur() -> tuple[ScoreDocument, PresentationTarget, Presentati
     slur: Slur = Slur.create(
         start=anchor(document, Fraction(1)),
         end=anchor(document, Fraction(3, 2)),
-        voices=[document.voices[0]],
+        voice=document.voices[0],
     )
     top = PresentationTarget(entity_id=slur.id)
     lower = PresentationTarget(entity_id=slur.id, reference=ReferencePoint.LOWER_EDGE)

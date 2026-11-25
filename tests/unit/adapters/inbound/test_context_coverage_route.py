@@ -25,7 +25,7 @@ def _app_with_a_slur() -> tuple[TestClient, str, str, list[Note]]:
     slur: Slur = Slur.create(
         start=anchor(document, Fraction(1)),
         end=anchor(document, Fraction(1) + Fraction(3, 4)),
-        voices=[document.voices[0]],
+        voice=document.voices[0],
     )
     storage = in_memory_history()
     draft = asyncio.run(
