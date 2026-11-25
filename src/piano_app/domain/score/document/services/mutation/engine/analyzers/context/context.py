@@ -2,7 +2,7 @@ from piano_app.domain.score.document.models.context import (
     Context,
     SpanContext,
     StaffScoped,
-    VoicesScoped,
+    VoiceScoped,
 )
 from piano_app.domain.score.document.models.structural import MEASURE_START, TemporalAnchor
 from piano_app.domain.score.document.services.contexts import (
@@ -20,14 +20,12 @@ from piano_app.domain.score.document.services.mutation.instructions import Mutat
 from piano_app.domain.score.document.services.mutation.instructions.actions.context import (
     UpdateContextEndAction,
     UpdateContextStartAction,
-    UpdateContextVoicesAction,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.context import (
     CloseOpenContextEndsRequest,
     OpenContextEndRequest,
     UpdateContextEndRequest,
     UpdateContextStartRequest,
-    UpdateContextVoicesRequest,
 )
 
 
@@ -70,7 +68,7 @@ class UpdateContextStartAnalyzer:
             if isinstance(context, SpanContext)
             else None,
             staff=context.staff if isinstance(context, StaffScoped) else None,
-            voices=context.voices if isinstance(context, VoicesScoped) else None,
+            voice=context.voice if isinstance(context, VoiceScoped) else None,
             ignore=context,
         )
         if clashes:
@@ -119,7 +117,7 @@ class UpdateContextEndAnalyzer:
                 geometry=geometry, measure=request.measure, position=request.position
             ),
             staff=context.staff if isinstance(context, StaffScoped) else None,
-            voices=context.voices if isinstance(context, VoicesScoped) else None,
+            voice=context.voice if isinstance(context, VoiceScoped) else None,
             ignore=context,
         )
         if clashes:
@@ -158,7 +156,7 @@ class OpenContextEndAnalyzer:
             start=geometry.point_of(anchor=context.start).value,
             end=geometry.root.extent,
             staff=context.staff if isinstance(context, StaffScoped) else None,
-            voices=context.voices if isinstance(context, VoicesScoped) else None,
+            voice=context.voice if isinstance(context, VoiceScoped) else None,
             ignore=context,
         )
         if clashes:
@@ -189,35 +187,3 @@ class CloseOpenContextEndsAnalyzer:
             yield UpdateContextEndRequest(
                 target=context, measure=request.document.measures[-1], position=MEASURE_START
             )
-
-
-class UpdateContextVoicesAnalyzer:
-    """Changes the voices a context applies to; the context itself stays, so at least one
-    voice must remain — a context left with none is deleted instead."""
-
-    def analyze(
-        self,
-        *,
-        request: UpdateContextVoicesRequest,
-        geometry: ScoreGeometry,
-        contexts: ContextIndex,
-    ) -> MutationAnalysis:
-        if not request.voices:
-            raise MutationRejectedError("A context keeps at least one voice.")
-
-        context: VoicesScoped = request.target
-        clashes: list[Clash] = find_clashes(
-            contexts=contexts,
-            kind=type(context),
-            start=geometry.point_of(anchor=context.start).value,
-            end=geometry.end_of(context=context).value
-            if isinstance(context, SpanContext)
-            else None,
-            staff=context.staff if isinstance(context, StaffScoped) else None,
-            voices=request.voices,
-            ignore=context,
-        )
-        if clashes:
-            raise MutationRejectedError(clashes[0].reason)
-
-        yield UpdateContextVoicesAction(target=context, voices=request.voices)

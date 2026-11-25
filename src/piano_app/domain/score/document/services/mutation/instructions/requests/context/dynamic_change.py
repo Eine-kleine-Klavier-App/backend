@@ -13,12 +13,12 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.bas
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateDynamicChangeRequest(CreateMutationRequest[DynamicChange]):
-    """A request to assert a dynamic level for some voices, starting at a measure position."""
+    """A request to assert a dynamic level for one voice, starting at a measure position."""
 
     axis: ClassVar[Axis | None] = Axis.CONTEXTS
     creates: ClassVar[type[ScoreEntity]] = DynamicChange
 
     measure: Measure
     position: MeasurePosition
-    voices: tuple[Voice, ...]
+    voice: Voice
     dynamic: DynamicMarking

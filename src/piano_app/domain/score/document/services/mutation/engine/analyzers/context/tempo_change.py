@@ -51,10 +51,10 @@ class CreateTempoChangeAnalyzer:
             ),
             end=None,
             staff=None,
-            voices=None,
+            voice=None,
         )
         refuse_clashes(clashes=clashes)
-        yield from displace_same_place(clashes=clashes, voices=None)
+        yield from displace_same_place(clashes=clashes)
 
         anchor: TemporalAnchor = yield from find_or_create_anchor(
             measure=request.measure, position=request.position

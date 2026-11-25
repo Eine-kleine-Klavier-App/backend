@@ -1,4 +1,4 @@
-from piano_app.domain.score.document.models.structural import TemporalAnchor, Voice
+from piano_app.domain.score.document.models.structural import TemporalAnchor
 from piano_app.domain.score.document.services.contexts import global_position
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
 from piano_app.domain.score.document.services.mutation.engine.analyzers.base import (
@@ -26,10 +26,6 @@ class CreateSlurAnalyzer:
         request: CreateSlurRequest,
         geometry: ScoreGeometry,
     ) -> MutationAnalysis:
-        voices: tuple[Voice, ...] = request.voices
-        if not voices or len(voices) != len(set(voices)):
-            raise MutationRejectedError("A slur names at least one voice, each once.")
-
         start = global_position(
             geometry=geometry, measure=request.start_measure, position=request.start_position
         )
@@ -45,4 +41,4 @@ class CreateSlurAnalyzer:
         end_anchor: TemporalAnchor = yield from find_or_create_anchor(
             measure=request.end_measure, position=request.end_position
         )
-        yield CreateSlurAction(start=start_anchor, end=end_anchor, voices=voices)
+        yield CreateSlurAction(start=start_anchor, end=end_anchor, voice=request.voice)

@@ -3,7 +3,6 @@ from .context import (
     DeleteContextAction,
     UpdateContextEndAction,
     UpdateContextStartAction,
-    UpdateContextVoicesAction,
 )
 from .dynamic_change import CreateDynamicChangeAction
 from .hairpin import CreateHairpinAction, UpdateHairpinStepsAction
@@ -37,7 +36,6 @@ __all__ = (
     "ReshapeVoltaAction",
     "UpdateContextEndAction",
     "UpdateContextStartAction",
-    "UpdateContextVoicesAction",
     "UpdateHairpinStepsAction",
     "UpdateRefrainEndAction",
     "UpdateRefrainStartAction",

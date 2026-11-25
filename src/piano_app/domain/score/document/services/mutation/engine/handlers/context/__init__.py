@@ -3,7 +3,6 @@ from .context import (
     DeleteContextHandler,
     UpdateContextEndHandler,
     UpdateContextStartHandler,
-    UpdateContextVoicesHandler,
 )
 from .dynamic_change import CreateDynamicChangeHandler
 from .hairpin import CreateHairpinHandler, UpdateHairpinStepsHandler
@@ -37,7 +36,6 @@ __all__ = (
     "ReshapeVoltaHandler",
     "UpdateContextEndHandler",
     "UpdateContextStartHandler",
-    "UpdateContextVoicesHandler",
     "UpdateHairpinStepsHandler",
     "UpdateRefrainEndHandler",
     "UpdateRefrainStartHandler",

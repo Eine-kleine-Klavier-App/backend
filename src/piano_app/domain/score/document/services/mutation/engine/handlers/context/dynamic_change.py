@@ -16,7 +16,7 @@ class CreateDynamicChangeHandler:
     ) -> DynamicChange:
         return DynamicChange.create(
             start=action.start,
-            voices=list(action.voices),
+            voice=action.voice,
             dynamic=action.dynamic,
             sink=sink,
         )

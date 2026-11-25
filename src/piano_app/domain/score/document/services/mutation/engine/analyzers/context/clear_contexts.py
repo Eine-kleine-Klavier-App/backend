@@ -4,10 +4,9 @@ from piano_app.domain.score.document.models.context import (
     Context,
     Refrain,
     SpanContext,
-    VoicesScoped,
     Volta,
 )
-from piano_app.domain.score.document.models.structural import MEASURE_START, Measure, Voice
+from piano_app.domain.score.document.models.structural import MEASURE_START, Measure
 from piano_app.domain.score.document.services.contexts import ContextIndex, Scope
 from piano_app.domain.score.document.services.geometry import Span
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
@@ -19,7 +18,6 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.con
     OpenContextEndRequest,
     UpdateContextEndRequest,
     UpdateContextStartRequest,
-    UpdateContextVoicesRequest,
 )
 from piano_app.domain.score.document.services.mutation.instructions.requests.delete import (
     DeleteRequest,
@@ -35,8 +33,7 @@ class ClearContextsAnalyzer:
     falls once it is gone; the boundary anchor is found or created by the move. When
     nothing of its region remains — the next context of the same kind already starts
     there, or the measure is the last one — it is removed; a context already at the
-    destination is never replaced. A voices-scoped point context is read voice by voice: it
-    keeps only the voices it still governs past the measure, and goes when none is left. A
+    destination is never replaced. A
     span context whose end lay in the measure has its region cut: the end moves left to the
     boundary, or, when the measure is the last one, it lasts until the end of the score. The
     context itself is kept whenever it moves.
@@ -93,30 +90,16 @@ class ClearContextsAnalyzer:
 
         doomed: list[Context] = []
         moved_starts: list[tuple[Context, Measure]] = []
-        trimmed: list[tuple[VoicesScoped, tuple[Voice, ...]]] = []
         moved_ends: list[tuple[SpanContext, Measure]] = []
         opened_ends: list[SpanContext] = []
         for context in touched:
             if context.start.measure is measure:
-                if isinstance(context, VoicesScoped) and not isinstance(context, SpanContext):
-                    # read voice by voice: kept for the voices it still governs past the measure
-                    governed: list[Voice] = contexts.governed_voices(
-                        context=context, at=measure_end
-                    )
-                    if boundary is not None and governed:
-                        moved_starts.append((context, boundary))
-                        if len(governed) < len(context.voices):
-                            trimmed.append((context, tuple(governed)))
-                    else:
-                        doomed.append(context)
-
+                # placed in the measure: kept only when its region reaches past it
+                region: Span = contexts.region_of(context=context)
+                if boundary is not None and region.end > measure_end:
+                    moved_starts.append((context, boundary))
                 else:
-                    # placed in the measure: kept only when its region reaches past it
-                    region: Span = contexts.region_of(context=context)
-                    if boundary is not None and region.end > measure_end:
-                        moved_starts.append((context, boundary))
-                    else:
-                        doomed.append(context)
+                    doomed.append(context)
 
             elif isinstance(context, SpanContext):
                 # its start lies before the measure; its end moves left to the boundary after it,
@@ -131,9 +114,6 @@ class ClearContextsAnalyzer:
 
         for context in doomed:
             yield DeleteRequest(target=context)
-
-        for voices_context, voices in trimmed:
-            yield UpdateContextVoicesRequest(target=voices_context, voices=voices)
 
         # spans first: a tempo or dynamic moved to the boundary must not meet a gradual change
         # of its kind that has not moved there yet

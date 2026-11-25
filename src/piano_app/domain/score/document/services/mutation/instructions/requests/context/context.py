@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from piano_app.domain.score.document.models import ScoreDocument
-from piano_app.domain.score.document.models.context import Context, SpanContext, VoicesScoped
-from piano_app.domain.score.document.models.structural import Measure, MeasurePosition, Voice
+from piano_app.domain.score.document.models.context import Context, SpanContext
+from piano_app.domain.score.document.models.structural import Measure, MeasurePosition
 from piano_app.domain.score.document.services.mutation.instructions.requests.base import (
     Axis,
     MutationRequest,
@@ -49,13 +49,3 @@ class CloseOpenContextEndsRequest(MutationRequest):
     axis: ClassVar[Axis | None] = Axis.CONTEXTS
 
     document: ScoreDocument
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class UpdateContextVoicesRequest(UpdateMutationRequest[VoicesScoped]):
-    """A request to change the voices a context applies to, keeping the context; at least
-    one voice stays."""
-
-    axis: ClassVar[Axis | None] = Axis.CONTEXTS
-
-    voices: tuple[Voice, ...]

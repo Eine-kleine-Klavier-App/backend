@@ -59,9 +59,8 @@ class CreateKeySignatureChangeAnalyzer:
                 ),
                 end=None,
                 staff=request.staff,
-                voices=None,
+                voice=None,
             ),
-            voices=None,
         )
 
         anchor: TemporalAnchor = yield from find_or_create_anchor(

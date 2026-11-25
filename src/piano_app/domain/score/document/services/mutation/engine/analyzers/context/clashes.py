@@ -1,7 +1,5 @@
 from collections.abc import Sequence
 
-from piano_app.domain.score.document.models.context import Context, VoicesScoped
-from piano_app.domain.score.document.models.structural import Voice
 from piano_app.domain.score.document.services.contexts import (
     Clash,
     ClashKind,
@@ -11,9 +9,6 @@ from piano_app.domain.score.document.services.contexts import (
 )
 from piano_app.domain.score.document.services.mutation.engine.typing import MutationAnalysis
 from piano_app.domain.score.document.services.mutation.instructions import MutationRejectedError
-from piano_app.domain.score.document.services.mutation.instructions.requests.context import (
-    UpdateContextVoicesRequest,
-)
 from piano_app.domain.score.document.services.mutation.instructions.requests.delete import (
     DeleteRequest,
 )
@@ -28,14 +23,9 @@ def refuse_clashes(*, clashes: Sequence[Clash]) -> None:
             raise MutationRejectedError(clash.reason)
 
 
-def displace_same_place(
-    *,
-    clashes: Sequence[Clash],
-    voices: Sequence[Voice] | None,
-) -> MutationAnalysis:
+def displace_same_place(*, clashes: Sequence[Clash]) -> MutationAnalysis:
     """Clears what a new context finds at its own place, each by the policy of its kind: a
-    context that is replaced is deleted; one that is cut down loses the voices of the new
-    context, and is deleted when none is left."""
+    context that is replaced is deleted."""
     for clash in clashes:
         if clash.kind is not ClashKind.SAME_PLACE:
             continue
@@ -46,15 +36,3 @@ def displace_same_place(
 
         if policy.on_same_place is OnSamePlace.REPLACE:
             yield DeleteRequest(target=clash.context)
-        elif policy.on_same_place is OnSamePlace.SUBTRACT_VOICES:
-            existing: Context = clash.context
-            if not isinstance(existing, VoicesScoped):
-                raise TypeError(f"{type(existing).__name__} names no voices to subtract.")
-
-            remaining: tuple[Voice, ...] = tuple(
-                voice for voice in existing.voices if voice not in (voices or ())
-            )
-            if remaining:
-                yield UpdateContextVoicesRequest(target=existing, voices=remaining)
-            else:
-                yield DeleteRequest(target=existing)
