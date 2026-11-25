@@ -9,7 +9,7 @@ from .staff import (
     ClefChange,
     KeySignatureChange,
 )
-from .voices import DynamicChange
+from .voice import DynamicChange
 from .volta import NewFragment, Volta, VoltaFragment
 
 __all__ = (

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from piano_app.domain.score.document.models.mutation_sink import DIRECT_SINK, MutationSink
 from piano_app.domain.score.document.models.notation import DynamicMarking
 
-from ..scope import VoicesScoped
+from ..scope import VoiceScoped
 from .base import PointContext
 
 if TYPE_CHECKING:
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(kw_only=True, eq=False)
-class DynamicChange(VoicesScoped, PointContext):
+class DynamicChange(VoiceScoped, PointContext):
     _dynamic: DynamicMarking
 
     @property
@@ -24,11 +24,11 @@ class DynamicChange(VoicesScoped, PointContext):
         cls,
         *,
         start: TemporalAnchor,
-        voices: list[Voice],
+        voice: Voice,
         dynamic: DynamicMarking,
         sink: MutationSink = DIRECT_SINK,
     ) -> DynamicChange:
-        dynamic_change = cls(_start=start, _voices=voices, _dynamic=dynamic)
+        dynamic_change = cls(_start=start, _voice=voice, _dynamic=dynamic)
 
         dynamic_change.attach(sink=sink)
         return dynamic_change
@@ -39,11 +39,11 @@ class DynamicChange(VoicesScoped, PointContext):
         *,
         id: str,
         start: TemporalAnchor,
-        voices: list[Voice],
+        voice: Voice,
         dynamic: DynamicMarking,
         sink: MutationSink = DIRECT_SINK,
     ) -> DynamicChange:
-        dynamic_change = cls(id=id, _start=start, _voices=voices, _dynamic=dynamic)
+        dynamic_change = cls(id=id, _start=start, _voice=voice, _dynamic=dynamic)
 
         dynamic_change.attach(sink=sink)
         return dynamic_change

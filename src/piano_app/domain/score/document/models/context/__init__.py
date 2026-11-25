@@ -14,7 +14,7 @@ from .point import (
     Volta,
     VoltaFragment,
 )
-from .scope import StaffScoped, VoicesScoped
+from .scope import StaffScoped, VoiceScoped
 from .span import (
     Hairpin,
     OctaveTransposition,
@@ -44,7 +44,7 @@ __all__ = (
     "SustainHold",
     "TempoChange",
     "TempoTransition",
-    "VoicesScoped",
+    "VoiceScoped",
     "Volta",
     "VoltaFragment",
 )

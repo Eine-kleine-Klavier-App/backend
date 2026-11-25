@@ -6,7 +6,7 @@ from piano_app.domain.score.document.models.base import ScoreEntity
 from piano_app.domain.score.document.models.mutation_sink import DIRECT_SINK, MutationSink
 
 if TYPE_CHECKING:
-    from piano_app.domain.score.document.models.context.scope.voices import VoicesScoped
+    from piano_app.domain.score.document.models.context.scope.voice import VoiceScoped
     from piano_app.domain.score.document.models.structural.rhythm.metric import (
         RhythmicContainer,
     )
@@ -16,9 +16,9 @@ if TYPE_CHECKING:
 class Voice(ScoreEntity):
     # may be empty at any time
     _children: list[RhythmicContainer] = field(default_factory=list)
-    # many-to-many with contexts: a context can name several voices, and one voice
-    # can be named by several contexts over time
-    _contexts: list[VoicesScoped] = field(default_factory=list)
+    # one-to-many with contexts: a context names one voice, and one voice can be named by
+    # several contexts over time
+    _contexts: list[VoiceScoped] = field(default_factory=list)
 
     # no constraint on emptiness in voice
     @property
@@ -26,7 +26,7 @@ class Voice(ScoreEntity):
         return self._children
 
     @property
-    def contexts(self) -> Sequence[VoicesScoped]:
+    def contexts(self) -> Sequence[VoiceScoped]:
         return self._contexts
 
     def add_child(
@@ -75,10 +75,10 @@ class Voice(ScoreEntity):
     def add_context(
         self,
         *,
-        context: VoicesScoped,
+        context: VoiceScoped,
         sink: MutationSink = DIRECT_SINK,
     ) -> None:
-        if self not in context.voices:
+        if context.voice is not self:
             raise ValueError("Cannot add context that does not name this voice.")
 
         if context in self._contexts:
@@ -102,10 +102,10 @@ class Voice(ScoreEntity):
     def remove_context(
         self,
         *,
-        context: VoicesScoped,
+        context: VoiceScoped,
         sink: MutationSink = DIRECT_SINK,
     ) -> None:
-        if self not in context.voices:
+        if context.voice is not self:
             raise ValueError("Cannot remove context that does not name this voice.")
 
         if context not in self._contexts:

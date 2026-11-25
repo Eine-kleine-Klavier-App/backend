@@ -123,7 +123,8 @@ class ScoreDocument:
             )
             KeySignatureChange.create(start=start, staff=staff)
 
-        DynamicChange.create(start=start, voices=list(self._voices), dynamic=_INITIAL_DYNAMIC)
+        for voice in self._voices:
+            DynamicChange.create(start=start, voice=voice, dynamic=_INITIAL_DYNAMIC)
 
     def missing_initial_contexts(self) -> list[str]:
         """What the very start of the score lacks of the contexts it must always hold; empty
@@ -154,7 +155,7 @@ class ScoreDocument:
 
         for voice in self._voices:
             if not any(
-                isinstance(context, DynamicChange) and voice in context.voices
+                isinstance(context, DynamicChange) and context.voice is voice
                 for context in starting
             ):
                 missing.append(f"dynamic of voice {voice.id}")
