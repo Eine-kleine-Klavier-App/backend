@@ -5,13 +5,13 @@ from fractions import Fraction
 from itertools import pairwise
 
 from piano_app.domain.score.document.models import ScoreDocument
-from piano_app.domain.score.document.models.context import Context, SpanContext, VoicesScoped
-from piano_app.domain.score.document.models.structural import TemporalAnchor, Voice
+from piano_app.domain.score.document.models.context import Context, SpanContext
+from piano_app.domain.score.document.models.structural import TemporalAnchor
 from piano_app.domain.score.document.services.geometry import Piece, Span
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
 from piano_app.domain.score.document.services.indexing import Index
 
-from .scope import Scope, scopes_of
+from .scope import Scope, scope_of
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -26,10 +26,10 @@ class _Entry:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _Placed:
-    """Where a context's entry was put: the entry and the scopes whose lists hold it."""
+    """Where a context's entry was put: the entry and the scope whose list holds it."""
 
     entry: _Entry
-    scopes: tuple[Scope, ...]
+    scope: Scope
 
 
 class ContextIndex(Index):
@@ -38,7 +38,7 @@ class ContextIndex(Index):
     A point context governs from its position until the next of its kind in the same scope;
     a span context from its start to its end. The entries of a kind are built whole when first
     read. After that a change marks only the contexts it touched, and the next read takes each
-    out of the scopes it was in and, if it is still held, puts it into the scopes it governs
+    out of the scope it was in and, if it is still held, puts it into the scope it governs
     now, by where it starts. Read through the geometry it is given, on the global timeline.
     """
 
@@ -112,34 +112,18 @@ class ContextIndex(Index):
 
     def region_of(self, *, context: Context) -> Span:
         """The region ``context`` governs, on the global timeline: a span context from its
-        start to its end; a point context from its position until the next of its kind in each
-        scope it governs — for a context on several voices, up to where it stops governing the
-        last of them."""
+        start to its end; a point context from its position until the next of its kind in its
+        scope."""
         start: Fraction = self._geometry.point_of(anchor=context.start).value
         end: Fraction
         if isinstance(context, SpanContext):
             end = self._geometry.end_of(context=context).value
         else:
-            end = max(
-                self.piece_at(kind=type(context), point=start, scope=scope).span.end
-                for scope in scopes_of(context=context)
-            )
+            end = self.piece_at(
+                kind=type(context), point=start, scope=scope_of(context=context)
+            ).span.end
 
         return Span(frame=self._geometry.root, start=start, length=end - start)
-
-    def governed_voices(self, *, context: VoicesScoped, at: Fraction) -> list[Voice]:
-        """The voices of a context on voices that it still governs at ``at``: those whose next
-        context of its kind starts after ``at``, or does not exist."""
-        start: Fraction = self._geometry.point_of(anchor=context.start).value
-
-        return [
-            voice
-            for voice in context.voices
-            if self.piece_at(
-                kind=type(context), point=start, scope=Scope.of_voice(voice=voice)
-            ).span.end
-            > at
-        ]
 
     def contexts_of[T: Context](self, *, kind: type[T], scope: Scope) -> list[T]:
         """The contexts of ``kind`` in ``scope``, by where they start."""
@@ -193,10 +177,9 @@ class ContextIndex(Index):
 
                     placed[context] = _Placed(
                         entry=self._entry_of(context=context),
-                        scopes=scopes_of(context=context),
+                        scope=scope_of(context=context),
                     )
-                    for governed in placed[context].scopes:
-                        by_scope.setdefault(governed, []).append(placed[context].entry)
+                    by_scope.setdefault(placed[context].scope, []).append(placed[context].entry)
 
         for entries in by_scope.values():
             entries.sort(key=lambda each: each.start)
@@ -216,8 +199,7 @@ class ContextIndex(Index):
             for context in dirty:
                 taken: _Placed | None = placed.pop(context, None)
                 if taken is not None:
-                    for governed in taken.scopes:
-                        by_scope[governed].remove(taken.entry)
+                    by_scope[taken.scope].remove(taken.entry)
 
             for context in dirty:
                 if not self._is_held(context=context):
@@ -225,16 +207,15 @@ class ContextIndex(Index):
 
                 placed[context] = _Placed(
                     entry=self._entry_of(context=context),
-                    scopes=scopes_of(context=context),
+                    scope=scope_of(context=context),
                 )
-                for governed in placed[context].scopes:
-                    entries: list[_Entry] = by_scope.setdefault(governed, [])
-                    entries.insert(
-                        bisect_right(
-                            entries, self._order_of(entry=placed[context].entry), key=self._order_of
-                        ),
-                        placed[context].entry,
-                    )
+                entries: list[_Entry] = by_scope.setdefault(placed[context].scope, [])
+                entries.insert(
+                    bisect_right(
+                        entries, self._order_of(entry=placed[context].entry), key=self._order_of
+                    ),
+                    placed[context].entry,
+                )
         except Exception:
             self._by_kind.pop(kind, None)
             self._placed.pop(kind, None)

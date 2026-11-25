@@ -9,7 +9,7 @@ from .clashes import (
 )
 from .coverage import Coverage, covered_by
 from .index import ContextIndex
-from .scope import Scope, scopes_of
+from .scope import Scope, scope_of
 from .values import ContextValues, Tempo
 
 __all__ = (
@@ -26,5 +26,5 @@ __all__ = (
     "find_clashes",
     "global_position",
     "policy_of",
-    "scopes_of",
+    "scope_of",
 )
