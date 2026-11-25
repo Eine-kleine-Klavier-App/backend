@@ -1,5 +1,64 @@
+# Local environment, one description for everything.
+#
+#   default services  postgres, draft-postgres, redis    `make infra`
+#   profile `full`    app (backend), frontend            `make full`
+#
+# The data services publish their ports on 127.0.0.1 only. The backend and the
+# frontend started natively (`make run`, `npm run dev`) use those ports through
+# .env; the containers of the `full` profile reach the services by name inside
+# the compose network instead.
+
+name: pianoappbackend
+
 services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: pianoapp-local-postgres
+    environment:
+      POSTGRES_USER: piano
+      POSTGRES_PASSWORD: piano
+      POSTGRES_DB: piano
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U piano -d piano"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  draft-postgres:
+    image: postgres:17-alpine
+    container_name: pianoapp-local-draft-postgres
+    environment:
+      POSTGRES_USER: piano_drafts
+      POSTGRES_PASSWORD: piano_drafts
+      POSTGRES_DB: piano_drafts
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - draft-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U piano_drafts -d piano_drafts"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pianoapp-local-redis
+    ports:
+      # 6380 on the host: 6379 is usually taken by a Redis installed on the machine.
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   app:
+    profiles: [full]
     build: .
     ports:
       - "8000:8000"
@@ -21,48 +80,27 @@ services:
       redis:
         condition: service_healthy
 
-  postgres:
-    image: postgres:17-alpine
+  frontend:
+    profiles: [full]
+    build: ../PianoAppFrontend
+    ports:
+      - "5173:5173"
     environment:
-      POSTGRES_USER: piano
-      POSTGRES_PASSWORD: piano
-      POSTGRES_DB: piano
-    ports:
-      - "5432:5432"
+      # Vite's dev proxy forwards /api to the backend container.
+      API_TARGET: http://app:8000
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U piano -d piano"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  draft-postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: piano_drafts
-      POSTGRES_PASSWORD: piano_drafts
-      POSTGRES_DB: piano_drafts
-    ports:
-      - "5433:5432"
-    volumes:
-      - draft-postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U piano_drafts -d piano_drafts"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      # The sources are mounted so edits show up at once; node_modules stays in
+      # a volume so the host's macOS binaries never shadow the container's.
+      - ../PianoAppFrontend:/app
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      - app
 
 volumes:
+  # Explicit names: without them compose derives the name from the folder, and a
+  # copy of this repository in another folder would start on an empty database.
   postgres-data:
+    name: pianoappbackend_postgres-data
   draft-postgres-data:
+    name: pianoappbackend_draft-postgres-data
+  frontend-node-modules:
