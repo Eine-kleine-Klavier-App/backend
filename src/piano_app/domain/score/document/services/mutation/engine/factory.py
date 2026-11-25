@@ -31,7 +31,6 @@ from piano_app.domain.score.document.services.mutation.engine.analyzers.context 
     SplitVoltaFragmentAnalyzer,
     UpdateContextEndAnalyzer,
     UpdateContextStartAnalyzer,
-    UpdateContextVoicesAnalyzer,
     UpdateHairpinStepsAnalyzer,
     UpdateRefrainTimesAnalyzer,
     UpdateTempoTransitionRatioAnalyzer,
@@ -111,7 +110,6 @@ from piano_app.domain.score.document.services.mutation.engine.handlers.context i
     ReshapeVoltaHandler,
     UpdateContextEndHandler,
     UpdateContextStartHandler,
-    UpdateContextVoicesHandler,
     UpdateHairpinStepsHandler,
     UpdateRefrainEndHandler,
     UpdateRefrainStartHandler,
@@ -195,7 +193,6 @@ from piano_app.domain.score.document.services.mutation.instructions.actions.cont
     ReshapeVoltaAction,
     UpdateContextEndAction,
     UpdateContextStartAction,
-    UpdateContextVoicesAction,
     UpdateHairpinStepsAction,
     UpdateRefrainEndAction,
     UpdateRefrainStartAction,
@@ -278,7 +275,6 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.con
     SplitVoltaFragmentRequest,
     UpdateContextEndRequest,
     UpdateContextStartRequest,
-    UpdateContextVoicesRequest,
     UpdateHairpinStepsRequest,
     UpdateRefrainTimesRequest,
     UpdateTempoTransitionRatioRequest,
@@ -432,10 +428,6 @@ def build_analyzer_registry() -> MutationAnalyzerRegistry:
         analyzer=CloseOpenContextEndsAnalyzer(),
     )
     registry.register_contexts(
-        request_type=UpdateContextVoicesRequest,
-        analyzer=UpdateContextVoicesAnalyzer(),
-    )
-    registry.register_contexts(
         request_type=CreateDynamicChangeRequest, analyzer=CreateDynamicChangeAnalyzer()
     )
     registry.register_contexts(request_type=CreateHairpinRequest, analyzer=CreateHairpinAnalyzer())
@@ -562,7 +554,6 @@ def build_handler_registry() -> MutationHandlerRegistry:
     registry.register(action_type=DeleteMeasureAction, handler=DeleteMeasureHandler())
     registry.register(action_type=UpdateContextStartAction, handler=UpdateContextStartHandler())
     registry.register(action_type=UpdateContextEndAction, handler=UpdateContextEndHandler())
-    registry.register(action_type=UpdateContextVoicesAction, handler=UpdateContextVoicesHandler())
     registry.register(action_type=CreateDynamicChangeAction, handler=CreateDynamicChangeHandler())
     registry.register(action_type=CreateHairpinAction, handler=CreateHairpinHandler())
     registry.register(action_type=UpdateHairpinStepsAction, handler=UpdateHairpinStepsHandler())

@@ -5,7 +5,6 @@ from .context import (
     OpenContextEndAnalyzer,
     UpdateContextEndAnalyzer,
     UpdateContextStartAnalyzer,
-    UpdateContextVoicesAnalyzer,
 )
 from .dynamic_change import CreateDynamicChangeAnalyzer
 from .hairpin import CreateHairpinAnalyzer, UpdateHairpinStepsAnalyzer
@@ -62,7 +61,6 @@ __all__ = (
     "SplitVoltaFragmentAnalyzer",
     "UpdateContextEndAnalyzer",
     "UpdateContextStartAnalyzer",
-    "UpdateContextVoicesAnalyzer",
     "UpdateHairpinStepsAnalyzer",
     "UpdateRefrainTimesAnalyzer",
     "UpdateTempoTransitionRatioAnalyzer",

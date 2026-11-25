@@ -1,5 +1,5 @@
 from piano_app.domain.score.document.models.context import Hairpin
-from piano_app.domain.score.document.models.structural import TemporalAnchor, Voice
+from piano_app.domain.score.document.models.structural import TemporalAnchor
 from piano_app.domain.score.document.services.contexts import (
     ContextIndex,
     find_clashes,
@@ -27,8 +27,8 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.con
 class CreateHairpinAnalyzer:
     """Decides placement for a new hairpin. Both ends are reused or created.
 
-    It must end after it starts, may not overlap another hairpin that shares a voice and may
-    not hold a dynamic of its voices strictly inside; all refused before anything is created.
+    It must end after it starts, may not overlap another hairpin of its voice and may not hold
+    a dynamic of its voice strictly inside; all refused before anything is created.
     """
 
     def analyze(
@@ -38,10 +38,6 @@ class CreateHairpinAnalyzer:
         geometry: ScoreGeometry,
         contexts: ContextIndex,
     ) -> MutationAnalysis:
-        voices: tuple[Voice, ...] = request.voices
-        if not voices or len(voices) != len(set(voices)):
-            raise MutationRejectedError("A hairpin names at least one voice, each once.")
-
         if request.steps == 0:
             raise MutationRejectedError("A hairpin must change the dynamic by at least one level.")
 
@@ -61,7 +57,7 @@ class CreateHairpinAnalyzer:
                 start=start,
                 end=end,
                 staff=None,
-                voices=voices,
+                voice=request.voice,
             )
         )
 
@@ -72,7 +68,7 @@ class CreateHairpinAnalyzer:
             measure=request.end_measure, position=request.end_position
         )
         yield CreateHairpinAction(
-            start=start_anchor, end=end_anchor, voices=voices, steps=request.steps
+            start=start_anchor, end=end_anchor, voice=request.voice, steps=request.steps
         )
 
 

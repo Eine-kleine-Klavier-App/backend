@@ -5,7 +5,6 @@ from .context import (
     OpenContextEndRequest,
     UpdateContextEndRequest,
     UpdateContextStartRequest,
-    UpdateContextVoicesRequest,
 )
 from .dynamic_change import CreateDynamicChangeRequest
 from .hairpin import CreateHairpinRequest, UpdateHairpinStepsRequest
@@ -63,7 +62,6 @@ __all__ = (
     "SplitVoltaFragmentRequest",
     "UpdateContextEndRequest",
     "UpdateContextStartRequest",
-    "UpdateContextVoicesRequest",
     "UpdateHairpinStepsRequest",
     "UpdateRefrainTimesRequest",
     "UpdateTempoTransitionRatioRequest",

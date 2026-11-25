@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from piano_app.domain.score.document.models.context import Context, SpanContext, VoicesScoped
-from piano_app.domain.score.document.models.structural import TemporalAnchor, Voice
+from piano_app.domain.score.document.models.context import Context, SpanContext
+from piano_app.domain.score.document.models.structural import TemporalAnchor
 from piano_app.domain.score.document.services.mutation.instructions.actions.base import (
     DeleteMutationAction,
     UpdateMutationAction,
@@ -25,10 +25,3 @@ class UpdateContextEndAction(UpdateMutationAction[SpanContext]):
     """Moves a span context's end to another anchor, or to the end of the score (``None``)."""
 
     end: TemporalAnchor | None
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class UpdateContextVoicesAction(UpdateMutationAction[VoicesScoped]):
-    """Changes the voices a context applies to."""
-
-    voices: tuple[Voice, ...]

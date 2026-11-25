@@ -18,7 +18,7 @@ class CreateHairpinHandler:
         return Hairpin.create(
             start=action.start,
             end=action.end,
-            voices=list(action.voices),
+            voice=action.voice,
             steps=action.steps,
             sink=sink,
         )

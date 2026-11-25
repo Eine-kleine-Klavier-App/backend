@@ -13,5 +13,5 @@ class CreateDynamicChangeAction(CreateMutationAction[DynamicChange]):
     """Creates a dynamic change on its anchor."""
 
     start: TemporalAnchor
-    voices: tuple[Voice, ...]
+    voice: Voice
     dynamic: DynamicMarking

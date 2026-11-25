@@ -14,7 +14,7 @@ class CreateHairpinAction(CreateMutationAction[Hairpin]):
 
     start: TemporalAnchor
     end: TemporalAnchor
-    voices: tuple[Voice, ...]
+    voice: Voice
     steps: int
 
 

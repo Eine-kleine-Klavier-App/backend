@@ -53,7 +53,7 @@ class CreateSustainHoldAnalyzer:
                 start=start,
                 end=end,
                 staff=None,
-                voices=None,
+                voice=None,
             )
         )
 

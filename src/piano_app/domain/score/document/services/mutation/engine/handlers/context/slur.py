@@ -17,6 +17,6 @@ class CreateSlurHandler:
         return Slur.create(
             start=action.start,
             end=action.end,
-            voices=list(action.voices),
+            voice=action.voice,
             sink=sink,
         )

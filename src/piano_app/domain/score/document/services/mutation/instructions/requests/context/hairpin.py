@@ -13,7 +13,7 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.bas
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateHairpinRequest(CreateMutationRequest[Hairpin]):
-    """A request to assert a hairpin over a span for some voices: ``steps`` dynamic levels
+    """A request to assert a hairpin over a span for one voice: ``steps`` dynamic levels
     from the level in force at its start, above zero a crescendo, below a diminuendo."""
 
     axis: ClassVar[Axis | None] = Axis.CONTEXTS
@@ -23,7 +23,7 @@ class CreateHairpinRequest(CreateMutationRequest[Hairpin]):
     start_position: MeasurePosition
     end_measure: Measure
     end_position: MeasurePosition
-    voices: tuple[Voice, ...]
+    voice: Voice
     steps: int
 
 

@@ -58,7 +58,7 @@ class CreateOctaveTranspositionAnalyzer:
                 start=start_point.value,
                 end=end_point.value,
                 staff=request.staff,
-                voices=None,
+                voice=None,
             )
         )
 

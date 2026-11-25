@@ -1,10 +1,9 @@
-from piano_app.domain.score.document.models.context import Context, SpanContext, VoicesScoped
+from piano_app.domain.score.document.models.context import Context, SpanContext
 from piano_app.domain.score.document.models.mutation_sink import MutationSink
 from piano_app.domain.score.document.services.mutation.instructions.actions.context import (
     DeleteContextAction,
     UpdateContextEndAction,
     UpdateContextStartAction,
-    UpdateContextVoicesAction,
 )
 
 
@@ -47,18 +46,4 @@ class UpdateContextEndHandler:
     ) -> None:
         context: SpanContext = action.target
         context.set_end(end=action.end, sink=sink)
-        return None
-
-
-class UpdateContextVoicesHandler:
-    """Changes the voices a context applies to."""
-
-    def handle(
-        self,
-        *,
-        action: UpdateContextVoicesAction,
-        sink: MutationSink,
-    ) -> None:
-        context: VoicesScoped = action.target
-        context.set_voices(voices=list(action.voices), sink=sink)
         return None

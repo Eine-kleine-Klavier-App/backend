@@ -13,4 +13,4 @@ class CreateSlurAction(CreateMutationAction[Slur]):
 
     start: TemporalAnchor
     end: TemporalAnchor
-    voices: tuple[Voice, ...]
+    voice: Voice
