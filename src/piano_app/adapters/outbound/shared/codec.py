@@ -18,7 +18,7 @@ from piano_app.domain.score.document.models.context import (
     SustainHold,
     TempoChange,
     TempoTransition,
-    VoicesScoped,
+    VoiceScoped,
     Volta,
 )
 from piano_app.domain.score.document.models.material import (
@@ -403,8 +403,8 @@ class _Serializer:
             common |= {"end_anchor_id": None if context.end is None else context.end.id}
         if isinstance(context, StaffScoped):
             common |= {"staff_id": context.staff.id}
-        if isinstance(context, VoicesScoped):
-            common |= {"voice_ids": [voice.id for voice in context.voices]}
+        if isinstance(context, VoiceScoped):
+            common |= {"voice_id": context.voice.id}
 
         if isinstance(context, TempoChange):
             return common | {
@@ -847,7 +847,7 @@ class _Deserializer:
             DynamicChange.reconstruct(
                 id=row["id"],
                 start=start,
-                voices=[self._voices_by_id[voice_id] for voice_id in row["voice_ids"]],
+                voice=self._voices_by_id[row["voice_id"]],
                 dynamic=DynamicMarking(row["dynamic"]),
             )
         elif kind == "sustain_hold":
@@ -885,7 +885,7 @@ class _Deserializer:
                 id=row["id"],
                 start=start,
                 end=self._end_anchor(row=row),
-                voices=[self._voices_by_id[voice_id] for voice_id in row["voice_ids"]],
+                voice=self._voices_by_id[row["voice_id"]],
                 steps=row["steps"],
             )
         elif kind == "tempo_transition":
@@ -900,7 +900,7 @@ class _Deserializer:
                 id=row["id"],
                 start=start,
                 end=self._end_anchor(row=row),
-                voices=[self._voices_by_id[voice_id] for voice_id in row["voice_ids"]],
+                voice=self._voices_by_id[row["voice_id"]],
             )
         else:
             raise ValueError(f"Unsupported context kind: {kind}.")

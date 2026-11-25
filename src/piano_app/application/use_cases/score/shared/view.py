@@ -16,7 +16,7 @@ from piano_app.domain.score.document.models.context import (
     SustainHold,
     TempoChange,
     TempoTransition,
-    VoicesScoped,
+    VoiceScoped,
     Volta,
 )
 from piano_app.domain.score.document.models.material import (
@@ -571,8 +571,8 @@ class ScoreView:
             }
         if isinstance(context, StaffScoped):
             common |= {"staff_id": context.staff.id}
-        if isinstance(context, VoicesScoped):
-            common |= {"voice_ids": [voice.id for voice in context.voices]}
+        if isinstance(context, VoiceScoped):
+            common |= {"voice_id": context.voice.id}
 
         if isinstance(context, ClefChange):
             return common | {
@@ -604,16 +604,10 @@ class ScoreView:
                 "kind": "hairpin",
                 "hairpin_type": context.hairpin_type.value,
                 "steps": context.steps,
-                "levels": [
-                    {
-                        "voice_id": voice.id,
-                        "from": self._values.hairpin_start_dynamic(
-                            hairpin=context, voice=voice
-                        ).value,
-                        "to": self._values.hairpin_end_dynamic(hairpin=context, voice=voice).value,
-                    }
-                    for voice in context.voices
-                ],
+                "from": self._values.hairpin_start_dynamic(
+                    hairpin=context, voice=context.voice
+                ).value,
+                "to": self._values.hairpin_end_dynamic(hairpin=context, voice=context.voice).value,
             }
 
         if isinstance(context, TempoTransition):

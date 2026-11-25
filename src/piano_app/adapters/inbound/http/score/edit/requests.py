@@ -29,7 +29,6 @@ from piano_app.domain.score.document.models.presentation import (
 )
 from piano_app.domain.score.document.models.structural import MeasurePosition
 from piano_app.domain.score.document.services.mutation.compiler import (
-    AddContextVoiceIntent,
     AddGraceCarrierNoteIntent,
     AddGraceNoteIntent,
     AddRefrainEndingIntent,
@@ -67,7 +66,6 @@ from piano_app.domain.score.document.services.mutation.compiler import (
     MoveVoltaStartIntent,
     OpenContextEndIntent,
     PitchEditMode,
-    RemoveContextVoiceIntent,
     RemoveGraceNoteIntent,
     SetAccidentalIntent,
     SetArticulationIntent,
@@ -517,24 +515,8 @@ class SetDynamicRequest(BaseModel):
         )
 
 
-class AddContextVoiceRequest(BaseModel):
-    context_id: str
-    voice_id: str
-
-    def to_intent(self) -> AddContextVoiceIntent:
-        return AddContextVoiceIntent(context_id=self.context_id, voice_id=self.voice_id)
-
-
-class RemoveContextVoiceRequest(BaseModel):
-    context_id: str
-    voice_id: str
-
-    def to_intent(self) -> RemoveContextVoiceIntent:
-        return RemoveContextVoiceIntent(context_id=self.context_id, voice_id=self.voice_id)
-
-
 class CreateHairpinRequest(BaseModel):
-    """Grow or fade between two places, to a dynamic, for voices that start at the same one."""
+    """Grow or fade between two places, to a dynamic, for some voices: a hairpin for each."""
 
     start_measure_id: str
     start_position: PositionModel
@@ -555,11 +537,11 @@ class CreateHairpinRequest(BaseModel):
 
 
 class SetHairpinTargetRequest(BaseModel):
-    hairpin_id: str
+    hairpin_ids: list[str] = Field(min_length=1)
     target: DynamicMarking
 
     def to_intent(self) -> SetHairpinTargetIntent:
-        return SetHairpinTargetIntent(hairpin_id=self.hairpin_id, target=self.target)
+        return SetHairpinTargetIntent(hairpin_ids=tuple(self.hairpin_ids), target=self.target)
 
 
 class SetKeySignatureRequest(BaseModel):
@@ -785,13 +767,13 @@ class SplitVoltaFragmentRequest(BaseModel):
 
 
 class OpenContextEndRequest(BaseModel):
-    """Make a span last until the end of the score."""
+    """Make spans last until the end of the score."""
 
-    context_id: str
+    context_ids: list[str] = Field(min_length=1)
     mode: PitchEditMode
 
     def to_intent(self) -> OpenContextEndIntent:
-        return OpenContextEndIntent(context_id=self.context_id, mode=self.mode)
+        return OpenContextEndIntent(context_ids=tuple(self.context_ids), mode=self.mode)
 
 
 class CreateSlurRequest(BaseModel):
@@ -1028,9 +1010,9 @@ class EditPresentationRequest(BaseModel):
 
 
 class MoveContextStartRequest(BaseModel):
-    """The new start of a span; ``presentation`` changes are part of the same gesture."""
+    """The new start of contexts; ``presentation`` changes are part of the same gesture."""
 
-    context_id: str
+    context_ids: list[str] = Field(min_length=1)
     measure_id: str
     position: PositionModel
     mode: PitchEditMode
@@ -1038,7 +1020,7 @@ class MoveContextStartRequest(BaseModel):
 
     def to_intent(self) -> MoveContextStartIntent:
         return MoveContextStartIntent(
-            context_id=self.context_id,
+            context_ids=tuple(self.context_ids),
             measure_id=self.measure_id,
             position=self.position.to_domain(),
             mode=self.mode,
@@ -1049,9 +1031,9 @@ class MoveContextStartRequest(BaseModel):
 
 
 class MoveContextEndRequest(BaseModel):
-    """The new end of a span; ``presentation`` changes are part of the same gesture."""
+    """The new end of spans; ``presentation`` changes are part of the same gesture."""
 
-    context_id: str
+    context_ids: list[str] = Field(min_length=1)
     measure_id: str
     position: PositionModel
     mode: PitchEditMode
@@ -1059,7 +1041,7 @@ class MoveContextEndRequest(BaseModel):
 
     def to_intent(self) -> MoveContextEndIntent:
         return MoveContextEndIntent(
-            context_id=self.context_id,
+            context_ids=tuple(self.context_ids),
             measure_id=self.measure_id,
             position=self.position.to_domain(),
             mode=self.mode,
