@@ -1,16 +1,20 @@
-.PHONY: infra migrate run up smoke down lint typecheck test check docker-build docker-up
+.PHONY: infra full status migrate run up smoke down lint typecheck test check docker-build
 
-# System Postgres + draft Postgres + Redis only (NOT the app container — `run`
-# below starts the API locally via .venv), waits for all to report healthy.
+# Data services only: system Postgres (5434), draft Postgres (5433), Redis (6380).
+# Waits until all three report healthy. The backend and frontend are not started.
 infra:
-	docker compose up -d postgres draft-postgres redis
-	@echo "waiting for system postgres + draft postgres + redis..."
-	@until [ "$$(docker inspect -f '{{.State.Health.Status}}' pianoappbackend-postgres-1 2>/dev/null)" = "healthy" ] && \
-	      [ "$$(docker inspect -f '{{.State.Health.Status}}' pianoappbackend-draft-postgres-1 2>/dev/null)" = "healthy" ] && \
-	      [ "$$(docker inspect -f '{{.State.Health.Status}}' pianoappbackend-redis-1 2>/dev/null)" = "healthy" ]; do \
-	    sleep 1; \
-	done
-	@echo "infra up"
+	docker compose up -d --wait postgres draft-postgres redis
+
+# Backend and frontend in containers next to the data services (profile `full`).
+# Ports 8000 and 5173 must be free: stop a native `make run` / `npm run dev` first.
+full:
+	docker compose --profile full up -d --build --wait
+
+# Who listens on the project ports and which containers are alive. Run it before
+# starting anything: what already runs is used, a second copy is never started.
+status:
+	@lsof -iTCP:8000,5173,5433,5434,6380 -sTCP:LISTEN -P -n || echo "nothing listens on 8000, 5173, 5433, 5434, 6380"
+	@docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
 # Applies all pending Alembic migrations (idempotent — safe to re-run).
 migrate:
@@ -30,8 +34,10 @@ up: infra migrate run
 smoke:
 	DRAFT_HISTORY_BACKEND=redis .venv/bin/python scripts/smoke.py
 
+# Stops and removes the containers, `full` profile included. Volumes are kept
+# (never add -v: the volumes hold the only copy of the local data).
 down:
-	docker compose down
+	docker compose --profile full down
 
 # ruff check + format check (no fixes applied).
 lint:
@@ -42,18 +48,13 @@ lint:
 typecheck:
 	.venv/bin/mypy src
 
-# Runs the test suite (see README for currently-known failures).
+# Runs the test suite.
 test:
 	.venv/bin/pytest
 
 # lint + typecheck + test, same checks CI runs.
 check: lint typecheck test
 
-# Builds the app image (Dockerfile) without starting anything.
+# Builds the backend image (Dockerfile) without starting anything.
 docker-build:
-	docker compose build app
-
-# Full stack in containers: infra + app, migrations applied by entrypoint.sh.
-# `make down` tears the whole stack (infra + app) back down.
-docker-up:
-	docker compose up --build
+	docker compose --profile full build app
