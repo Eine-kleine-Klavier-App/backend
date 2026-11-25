@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from piano_app.domain.score.document.models.mutation_sink import DIRECT_SINK, MutationSink
 from piano_app.domain.score.document.models.notation import HairpinType
 
-from ..scope import VoicesScoped
+from ..scope import VoiceScoped
 from .base import SpanContext
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ def _check_steps(*, steps: int) -> None:
 
 
 @dataclass(kw_only=True, eq=False)
-class Hairpin(VoicesScoped, SpanContext):
+class Hairpin(VoiceScoped, SpanContext):
     _steps: int
 
     @property
@@ -45,14 +45,14 @@ class Hairpin(VoicesScoped, SpanContext):
         *,
         start: TemporalAnchor,
         end: TemporalAnchor | None,
-        voices: list[Voice],
+        voice: Voice,
         steps: int,
         sink: MutationSink = DIRECT_SINK,
     ) -> Hairpin:
         hairpin = cls(
             _start=start,
             _end=end,
-            _voices=voices,
+            _voice=voice,
             _steps=steps,
         )
 
@@ -66,7 +66,7 @@ class Hairpin(VoicesScoped, SpanContext):
         id: str,
         start: TemporalAnchor,
         end: TemporalAnchor | None,
-        voices: list[Voice],
+        voice: Voice,
         steps: int,
         sink: MutationSink = DIRECT_SINK,
     ) -> Hairpin:
@@ -74,7 +74,7 @@ class Hairpin(VoicesScoped, SpanContext):
             id=id,
             _start=start,
             _end=end,
-            _voices=voices,
+            _voice=voice,
             _steps=steps,
         )
 
@@ -83,17 +83,17 @@ class Hairpin(VoicesScoped, SpanContext):
 
 
 @dataclass(kw_only=True, eq=False)
-class Slur(VoicesScoped, SpanContext):
+class Slur(VoiceScoped, SpanContext):
     @classmethod
     def create(
         cls,
         *,
         start: TemporalAnchor,
         end: TemporalAnchor | None,
-        voices: list[Voice],
+        voice: Voice,
         sink: MutationSink = DIRECT_SINK,
     ) -> Slur:
-        slur = cls(_start=start, _end=end, _voices=voices)
+        slur = cls(_start=start, _end=end, _voice=voice)
 
         slur.attach(sink=sink)
         return slur
@@ -105,10 +105,10 @@ class Slur(VoicesScoped, SpanContext):
         id: str,
         start: TemporalAnchor,
         end: TemporalAnchor | None,
-        voices: list[Voice],
+        voice: Voice,
         sink: MutationSink = DIRECT_SINK,
     ) -> Slur:
-        slur = cls(id=id, _start=start, _end=end, _voices=voices)
+        slur = cls(id=id, _start=start, _end=end, _voice=voice)
 
         slur.attach(sink=sink)
         return slur

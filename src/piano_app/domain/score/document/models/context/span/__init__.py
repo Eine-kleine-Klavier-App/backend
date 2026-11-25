@@ -1,7 +1,7 @@
 from .base import SpanContext
 from .score import SustainHold, TempoTransition
 from .staff import OctaveTransposition
-from .voices import Hairpin, Slur
+from .voice import Hairpin, Slur
 
 __all__ = (
     "Hairpin",

@@ -1,7 +1,7 @@
 from .staff import StaffScoped
-from .voices import VoicesScoped
+from .voice import VoiceScoped
 
 __all__ = (
     "StaffScoped",
-    "VoicesScoped",
+    "VoiceScoped",
 )
