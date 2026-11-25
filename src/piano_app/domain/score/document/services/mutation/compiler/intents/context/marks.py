@@ -20,6 +20,8 @@ class SetKeySignatureIntent(EditIntent):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateSlurIntent(EditIntent):
+    """Slur a stretch for some voices: one slur for each voice."""
+
     start_measure_id: str
     start_position: MeasurePosition
     end_measure_id: str
@@ -86,9 +88,9 @@ class DeleteOctaveTranspositionIntent(EditIntent):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MoveContextStartIntent(EditIntent):
-    """Move where a context starts; ``mode`` matters only for a clef or an octave line."""
+    """Move where contexts start; ``mode`` matters only for a clef or an octave line."""
 
-    context_id: str
+    context_ids: tuple[str, ...]
     measure_id: str
     position: MeasurePosition
     mode: PitchEditMode
@@ -96,9 +98,9 @@ class MoveContextStartIntent(EditIntent):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MoveContextEndIntent(EditIntent):
-    """Move where a span context ends; ``mode`` matters only for an octave line."""
+    """Move where span contexts end; ``mode`` matters only for an octave line."""
 
-    context_id: str
+    context_ids: tuple[str, ...]
     measure_id: str
     position: MeasurePosition
     mode: PitchEditMode
@@ -106,8 +108,8 @@ class MoveContextEndIntent(EditIntent):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OpenContextEndIntent(EditIntent):
-    """Make a span context last until the end of the score; ``mode`` matters only for an
+    """Make span contexts last until the end of the score; ``mode`` matters only for an
     octave line."""
 
-    context_id: str
+    context_ids: tuple[str, ...]
     mode: PitchEditMode

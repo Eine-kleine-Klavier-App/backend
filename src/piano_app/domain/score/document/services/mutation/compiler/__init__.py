@@ -2,7 +2,6 @@ from .base import EditIntent, IntentCompiler
 from .compiler import MutationCompiler
 from .factory import build_compiler
 from .intents import (
-    AddContextVoiceIntent,
     AddGraceCarrierNoteIntent,
     AddGraceNoteIntent,
     AddRefrainEndingIntent,
@@ -40,7 +39,6 @@ from .intents import (
     MoveVoltaStartIntent,
     OpenContextEndIntent,
     PitchEditMode,
-    RemoveContextVoiceIntent,
     RemoveGraceNoteIntent,
     RemoveMeasureIntent,
     SetAccidentalIntent,
@@ -66,7 +64,6 @@ from .intents import (
 )
 
 __all__ = (
-    "AddContextVoiceIntent",
     "AddGraceCarrierNoteIntent",
     "AddGraceNoteIntent",
     "AddRefrainEndingIntent",
@@ -107,7 +104,6 @@ __all__ = (
     "MutationCompiler",
     "OpenContextEndIntent",
     "PitchEditMode",
-    "RemoveContextVoiceIntent",
     "RemoveGraceNoteIntent",
     "RemoveMeasureIntent",
     "SetAccidentalIntent",
