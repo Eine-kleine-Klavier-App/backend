@@ -7,7 +7,6 @@ from piano_app.application.use_cases.score import ScoreEditService
 from piano_app.application.use_cases.score.shared import ScoreState
 
 from .requests import (
-    AddContextVoiceRequest,
     AddGraceCarrierNoteRequest,
     AddGraceNoteRequest,
     AddRefrainEndingRequest,
@@ -42,7 +41,6 @@ from .requests import (
     MoveVoltaBoundaryRequest,
     MoveVoltaStartRequest,
     OpenContextEndRequest,
-    RemoveContextVoiceRequest,
     RemoveGraceNoteRequest,
     SetAccidentalRequest,
     SetArticulationRequest,
@@ -407,32 +405,6 @@ def build_edit_router(*, service: ScoreEditService, current_user: CurrentUser) -
         draft_id: Annotated[str, Path(description="The draft ID")],
         actor_id: Annotated[str, Depends(current_user)],
         request: Annotated[SetDynamicRequest, Body(description="The dynamic command")],
-    ) -> ScoreEditedResponse:
-        state: ScoreState = await service.apply(
-            draft_id=draft_id,
-            actor_id=actor_id,
-            intent=request.to_intent(),
-        )
-        return ScoreEditedResponse.from_state(state)
-
-    @router.post(path="/context-voices", status_code=200)
-    async def add_context_voice(
-        draft_id: Annotated[str, Path(description="The draft ID")],
-        actor_id: Annotated[str, Depends(current_user)],
-        request: Annotated[AddContextVoiceRequest, Body(description="The voice to add")],
-    ) -> ScoreEditedResponse:
-        state: ScoreState = await service.apply(
-            draft_id=draft_id,
-            actor_id=actor_id,
-            intent=request.to_intent(),
-        )
-        return ScoreEditedResponse.from_state(state)
-
-    @router.post(path="/context-voice-removals", status_code=200)
-    async def remove_context_voice(
-        draft_id: Annotated[str, Path(description="The draft ID")],
-        actor_id: Annotated[str, Depends(current_user)],
-        request: Annotated[RemoveContextVoiceRequest, Body(description="The voice to remove")],
     ) -> ScoreEditedResponse:
         state: ScoreState = await service.apply(
             draft_id=draft_id,

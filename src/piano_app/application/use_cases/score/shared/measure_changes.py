@@ -4,7 +4,7 @@ Each row the change names belongs to the measure its entity is kept with when th
 measure (see ``ScoreView``): a row that is there after the edit is found in the view of the score
 after it, a row that is gone is found in the rows of the record before it. Some rows reach further
 than their measure: a key, a clef or an octave line changes what the notes after it sound until
-the next one on its staff, a dynamic or a hairpin the loudness of its voices until their next
+the next one on its staff, a dynamic or a hairpin the loudness of its voice until its next
 dynamic, a tie or a glissando both of its notes, and a change of tempo, of the pedal, of the
 order of play or of the measures themselves the time of everything that follows. What cannot be
 placed is taken as a change of every measure.
@@ -27,7 +27,7 @@ from piano_app.domain.score.document.models.context import (
     SpanContext,
     StaffScoped,
     TempoTransition,
-    VoicesScoped,
+    VoiceScoped,
 )
 from piano_app.domain.score.document.models.material.primitive import Note
 from piano_app.domain.score.document.models.relations import Glissando, Tie
@@ -42,7 +42,7 @@ _PITCH_KINDS: dict[str, type[Context]] = {
     "clef_change": ClefChange,
     "octave_transposition": OctaveTransposition,
 }
-# the contexts whose change reaches the loudness of their voices until their next dynamic
+# the contexts whose change reaches the loudness of their voice until its next dynamic
 _LOUDNESS_KINDS: frozenset[str] = frozenset({"dynamic_change", "hairpin"})
 # the contexts whose change moves the time of what follows; the view shows the tempo a
 # transition goes from and to
@@ -206,12 +206,11 @@ class _Reach:
             )
             self._add_range(start=home, until=until, content=True)
         elif kind in _LOUDNESS_KINDS:
-            voice_ids: set[str] = {str(voice_id) for voice_id in row.get("voice_ids", [])}
+            voice_id: object = row.get("voice_id")
             until = self._next_measure(
                 start=home,
                 matches=lambda context: (
-                    isinstance(context, DynamicChange)
-                    and any(voice.id in voice_ids for voice in context.voices)
+                    isinstance(context, DynamicChange) and context.voice.id == voice_id
                 ),
             )
             if until is not None:
@@ -221,11 +220,9 @@ class _Reach:
                 else:
                     until = max(until, self._order[end])
             self._add_range(start=home, until=until, content=False)
-            # a hairpin of the same voices shows the levels it goes from and to
+            # a hairpin of the same voice shows the levels it goes from and to
             for context in self._contexts_after():
-                if isinstance(context, Hairpin) and any(
-                    voice.id in voice_ids for voice in context.voices
-                ):
+                if isinstance(context, Hairpin) and context.voice.id == voice_id:
                     self._add_home(home=self._view.home_of(entity_id=context.id))
         elif kind in _TEMPO_KINDS:
             self._every_sound = True
@@ -311,7 +308,7 @@ class _Reach:
         for context in self._contexts_after():
             if (
                 isinstance(context, SpanContext)
-                and isinstance(context, VoicesScoped)
+                and isinstance(context, VoiceScoped)
                 and context.end is not None
                 and context.end.id == end_anchor_id
             ):

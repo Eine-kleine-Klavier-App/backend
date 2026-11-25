@@ -505,7 +505,7 @@ class MarkPlacer:
                         measure="",
                         what="An octave line",
                         intent=OpenContextEndIntent(
-                            context_id=context.id, mode=PitchEditMode.PRESERVE_STEP
+                            context_ids=(context.id,), mode=PitchEditMode.PRESERVE_STEP
                         ),
                     )
                 )
@@ -659,8 +659,7 @@ class MarkPlacer:
         change the level the right way, is left out. Each staff has its own hairpins and the
         dynamics that are its own or the piece's; a hairpin is for the voices of its staff only
         where a hairpin of the other staff runs over the same time or the staffs are not at the
-        same level (the engine states a hairpin for voices that start at one dynamic), and for all
-        voices otherwise."""
+        same level, and for all voices otherwise; a hairpin is made for each voice named."""
         spans_of: dict[int, list[tuple[Place, Place, str]]] = {}
         open_wedges: dict[int, tuple[Place, str]] = {}
         for index, measure in enumerate(source.measures):
