@@ -31,14 +31,14 @@ def _slur(*, document: ScoreDocument) -> Slur:
     return Slur.create(
         start=anchor(document, Fraction(1, 2)),
         end=anchor(document, Fraction(2)),
-        voices=[document.voices[0]],
+        voice=document.voices[0],
     )
 
 
 def _open(*, document: ScoreDocument, slur: Slur) -> MutationLog:
     return _run(
         document=document,
-        intent=OpenContextEndIntent(context_id=slur.id, mode=PitchEditMode.PRESERVE_PITCH),
+        intent=OpenContextEndIntent(context_ids=(slur.id,), mode=PitchEditMode.PRESERVE_PITCH),
     )
 
 

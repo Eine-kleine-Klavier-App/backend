@@ -37,7 +37,7 @@ def _dynamics(*, document: ScoreDocument) -> Dynamics:
 def _set(*, document: ScoreDocument, at: Fraction, dynamic: DynamicMarking, voice: int = 0) -> None:
     DynamicChange.create(
         start=anchor(document, at),
-        voices=[document.voices[voice]],
+        voice=document.voices[voice],
         dynamic=dynamic,
     )
 
@@ -92,7 +92,7 @@ def test_a_hairpin_goes_from_the_level_it_starts_at_by_its_steps_and_the_end_sta
     Hairpin.create(
         start=anchor(document, _ONE),
         end=anchor(document, 2 * _ONE),
-        voices=[document.voices[0]],
+        voice=document.voices[0],
         steps=2,
     )
     voice: Voice = document.voices[0]
@@ -111,7 +111,7 @@ def test_a_hairpin_is_held_to_the_scale() -> None:
     Hairpin.create(
         start=anchor(document, _ONE),
         end=anchor(document, 2 * _ONE),
-        voices=[document.voices[0]],
+        voice=document.voices[0],
         steps=-9,
     )
 
@@ -142,7 +142,7 @@ def test_a_hairpin_cut_by_a_jump_keeps_the_level_it_reached() -> None:
     Hairpin.create(
         start=anchor(document, Fraction(3, 2)),
         end=anchor(document, Fraction(5, 2)),
-        voices=[document.voices[0]],
+        voice=document.voices[0],
         steps=2,
     )
     _repeat(document=document, first=1, last=2)

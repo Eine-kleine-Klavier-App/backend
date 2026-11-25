@@ -52,13 +52,13 @@ def test_a_point_meets_a_context_of_its_kind_at_its_own_place_on_the_same_staff_
     index: ContextIndex = _index(document=document)
 
     same: list[Clash] = find_clashes(
-        contexts=index, kind=ClefChange, start=_ONE, end=None, staff=upper, voices=None
+        contexts=index, kind=ClefChange, start=_ONE, end=None, staff=upper, voice=None
     )
     other_staff: list[Clash] = find_clashes(
-        contexts=index, kind=ClefChange, start=_ONE, end=None, staff=lower, voices=None
+        contexts=index, kind=ClefChange, start=_ONE, end=None, staff=lower, voice=None
     )
     moved: list[Clash] = find_clashes(
-        contexts=index, kind=ClefChange, start=_ONE, end=None, staff=upper, voices=None, ignore=bass
+        contexts=index, kind=ClefChange, start=_ONE, end=None, staff=upper, voice=None, ignore=bass
     )
 
     assert [(clash.kind, clash.context) for clash in same] == [(ClashKind.SAME_PLACE, bass)]
@@ -66,19 +66,23 @@ def test_a_point_meets_a_context_of_its_kind_at_its_own_place_on_the_same_staff_
     assert moved == []
 
 
-def test_a_point_on_voices_meets_a_context_that_shares_a_voice() -> None:
+def test_a_point_on_a_voice_meets_a_context_of_that_voice_only() -> None:
     document: ScoreDocument = _document()
     first, second = document.voices
-    shared: DynamicChange = DynamicChange.create(
-        start=anchor(document, _ONE), voices=[first, second], dynamic=DynamicMarking.FORTE
+    on_first: DynamicChange = DynamicChange.create(
+        start=anchor(document, _ONE), voice=first, dynamic=DynamicMarking.FORTE
     )
     index: ContextIndex = _index(document=document)
 
-    sharing: list[Clash] = find_clashes(
-        contexts=index, kind=DynamicChange, start=_ONE, end=None, staff=None, voices=[second]
+    same_voice: list[Clash] = find_clashes(
+        contexts=index, kind=DynamicChange, start=_ONE, end=None, staff=None, voice=first
+    )
+    other_voice: list[Clash] = find_clashes(
+        contexts=index, kind=DynamicChange, start=_ONE, end=None, staff=None, voice=second
     )
 
-    assert [clash.context for clash in sharing] == [shared]
+    assert [clash.context for clash in same_voice] == [on_first]
+    assert other_voice == []
 
 
 def test_a_span_meets_the_spans_of_its_kind_it_overlaps_but_not_one_it_touches() -> None:
@@ -95,7 +99,7 @@ def test_a_span_meets_the_spans_of_its_kind_it_overlaps_but_not_one_it_touches()
         start=_HALF_PAST_ONE,
         end=_HALF_PAST_TWO,
         staff=upper,
-        voices=None,
+        voice=None,
     )
     touching: list[Clash] = find_clashes(
         contexts=index,
@@ -103,7 +107,7 @@ def test_a_span_meets_the_spans_of_its_kind_it_overlaps_but_not_one_it_touches()
         start=_TWO,
         end=_THREE,
         staff=upper,
-        voices=None,
+        voice=None,
     )
     other_staff: list[Clash] = find_clashes(
         contexts=index,
@@ -111,7 +115,7 @@ def test_a_span_meets_the_spans_of_its_kind_it_overlaps_but_not_one_it_touches()
         start=_HALF_PAST_ONE,
         end=_HALF_PAST_TWO,
         staff=lower,
-        voices=None,
+        voice=None,
     )
     moved: list[Clash] = find_clashes(
         contexts=index,
@@ -119,7 +123,7 @@ def test_a_span_meets_the_spans_of_its_kind_it_overlaps_but_not_one_it_touches()
         start=_HALF_PAST_ONE,
         end=_HALF_PAST_TWO,
         staff=upper,
-        voices=None,
+        voice=None,
         ignore=line,
     )
 
@@ -143,7 +147,7 @@ def test_a_span_with_no_end_lasts_to_the_end_of_the_score() -> None:
         start=_HALF_PAST_TWO,
         end=_THREE,
         staff=upper,
-        voices=None,
+        voice=None,
     )
     before: list[Clash] = find_clashes(
         contexts=index,
@@ -151,7 +155,7 @@ def test_a_span_with_no_end_lasts_to_the_end_of_the_score() -> None:
         start=Fraction(0),
         end=_ONE,
         staff=upper,
-        voices=None,
+        voice=None,
     )
 
     assert [(clash.kind, clash.context) for clash in later] == [(ClashKind.OVERLAP, line)]
@@ -161,7 +165,7 @@ def test_a_span_with_no_end_lasts_to_the_end_of_the_score() -> None:
 def test_slurs_are_free_to_overlap() -> None:
     document: ScoreDocument = _document()
     voice = document.voices[0]
-    Slur.create(start=anchor(document, _ONE), end=anchor(document, _HALF_PAST_TWO), voices=[voice])
+    Slur.create(start=anchor(document, _ONE), end=anchor(document, _HALF_PAST_TWO), voice=voice)
 
     assert (
         find_clashes(
@@ -170,7 +174,7 @@ def test_slurs_are_free_to_overlap() -> None:
             start=_HALF_PAST_ONE,
             end=_HALF_PAST_TWO,
             staff=None,
-            voices=[voice],
+            voice=voice,
         )
         == []
     )
@@ -188,7 +192,7 @@ def test_a_point_is_inside_a_partner_span_only_strictly_between_its_ends() -> No
         return [
             clash
             for clash in find_clashes(
-                contexts=index, kind=TempoChange, start=point, end=None, staff=None, voices=None
+                contexts=index, kind=TempoChange, start=point, end=None, staff=None, voice=None
             )
             if clash.kind is ClashKind.INSIDE
         ]
@@ -201,22 +205,22 @@ def test_a_point_is_inside_a_partner_span_only_strictly_between_its_ends() -> No
     assert clashes_at(_HALF_PAST_TWO) == []
 
 
-def test_a_span_holds_a_partner_point_only_strictly_inside_it_and_on_its_own_voices() -> None:
+def test_a_span_holds_a_partner_point_only_strictly_inside_it_and_on_its_own_voice() -> None:
     document: ScoreDocument = _document()
     first, second = document.voices
     inside: DynamicChange = DynamicChange.create(
-        start=anchor(document, _HALF_PAST_ONE), voices=[first], dynamic=DynamicMarking.FORTE
+        start=anchor(document, _HALF_PAST_ONE), voice=first, dynamic=DynamicMarking.FORTE
     )
     DynamicChange.create(
-        start=anchor(document, _ONE), voices=[first], dynamic=DynamicMarking.MEZZO_FORTE
+        start=anchor(document, _ONE), voice=first, dynamic=DynamicMarking.MEZZO_FORTE
     )
     DynamicChange.create(
-        start=anchor(document, _HALF_PAST_ONE), voices=[second], dynamic=DynamicMarking.PIANO
+        start=anchor(document, _HALF_PAST_ONE), voice=second, dynamic=DynamicMarking.PIANO
     )
     index: ContextIndex = _index(document=document)
 
     held: list[Clash] = find_clashes(
-        contexts=index, kind=Hairpin, start=_ONE, end=_TWO, staff=None, voices=[first]
+        contexts=index, kind=Hairpin, start=_ONE, end=_TWO, staff=None, voice=first
     )
 
     assert [(clash.kind, clash.context) for clash in held] == [(ClashKind.HOLDS, inside)]
@@ -237,7 +241,7 @@ def test_a_kind_without_a_policy_meets_nothing() -> None:
             start=_HALF_PAST_ONE,
             end=_HALF_PAST_TWO,
             staff=None,
-            voices=None,
+            voice=None,
         )
         == []
     )

@@ -73,11 +73,9 @@ def test_a_fresh_score_starts_with_a_dynamic_on_each_voice_and_one_tempo() -> No
         context for context in _start_contexts(document) if isinstance(context, TempoChange)
     ]
 
-    assert sorted(voice.id for change in dynamics for voice in change.voices) == sorted(
+    assert sorted(change.voice.id for change in dynamics) == sorted(
         voice.id for voice in document.voices
     )
-    assert len(dynamics) == 1
-    assert dynamics[0].voices == list(document.voices)
     assert {change.dynamic for change in dynamics} == {DynamicMarking.PIANO}
     assert len(tempos) == 1
     assert (tempos[0].beat.value, tempos[0].beat.dots_count, tempos[0].bpm) == (
@@ -96,7 +94,7 @@ def test_every_start_context_lies_at_the_very_start_of_the_first_measure() -> No
     assert len(document.measures[0].anchors) == 1
     assert document.measures[0].anchors[0].position == MEASURE_START
     assert all(not measure.anchors for measure in document.measures[1:])
-    assert len(_start_contexts(document)) == 1 + 2 * 2 + 1
+    assert len(_start_contexts(document)) == 1 + 2 * 2 + 2
 
 
 @pytest.mark.unit

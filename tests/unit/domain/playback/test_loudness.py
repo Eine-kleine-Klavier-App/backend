@@ -91,7 +91,7 @@ def test_a_note_is_struck_at_the_dynamic_of_its_voice() -> None:
     note(document, Fraction(1, 4), _NATURAL, voice=1)
     DynamicChange.create(
         start=anchor(document, Fraction(0)),
-        voices=[document.voices[1]],
+        voice=document.voices[1],
         dynamic=DynamicMarking.MEZZO_FORTE,
     )
 
@@ -118,7 +118,7 @@ def test_a_note_in_a_crescendo_is_struck_at_the_level_where_it_starts() -> None:
     Hairpin.create(
         start=anchor(document, Fraction(0)),
         end=anchor(document, Fraction(1)),
-        voices=[document.voices[0]],
+        voice=document.voices[0],
         steps=2,
     )
 
@@ -132,7 +132,7 @@ def test_a_grace_note_is_struck_at_the_dynamic_of_the_voice_of_its_note() -> Non
     grace(document, host, GracePlacement.BEFORE, _NATURAL)
     DynamicChange.create(
         start=anchor(document, Fraction(0)),
-        voices=[document.voices[1]],
+        voice=document.voices[1],
         dynamic=DynamicMarking.FORTE,
     )
 

@@ -1,7 +1,7 @@
 from fractions import Fraction
 
 import pytest
-from tests.unit.domain.document_builders import anchor, note, score, size
+from tests.unit.domain.document_builders import anchor, note, score
 
 from piano_app.domain.score.document.models import ScoreDocument
 from piano_app.domain.score.document.models.context import (
@@ -13,13 +13,12 @@ from piano_app.domain.score.document.models.context import (
     SustainHold,
     TempoChange,
 )
-from piano_app.domain.score.document.models.material import Note, Rest, RestCarrier
+from piano_app.domain.score.document.models.material import Note
 from piano_app.domain.score.document.models.notation import (
     DottedRhythmicValue,
     DynamicMarking,
     RhythmicValue,
 )
-from piano_app.domain.score.document.models.structural.rhythm import LeafRhythmicContainer
 from piano_app.domain.score.document.services.contexts import ContextIndex, Coverage, covered_by
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
 
@@ -59,7 +58,7 @@ def test_a_slur_covers_the_notes_of_its_voices_up_to_but_not_the_note_it_lands_o
     slur: Slur = Slur.create(
         start=anchor(document, _BEATS[0]),
         end=anchor(document, _BEATS[3]),
-        voices=[document.voices[0]],
+        voice=document.voices[0],
     )
 
     coverage: Coverage = _coverage(document=document, context=slur)
@@ -117,7 +116,7 @@ def test_a_hairpin_covers_the_notes_of_its_voices() -> None:
     hairpin: Hairpin = Hairpin.create(
         start=anchor(document, _BEATS[0]),
         end=anchor(document, _BEATS[2]),
-        voices=[document.voices[1]],
+        voice=document.voices[1],
         steps=1,
     )
 
@@ -142,45 +141,29 @@ def test_a_tempo_covers_everything_until_the_next_tempo() -> None:
 
 
 @pytest.mark.unit
-def test_a_dynamic_covers_each_of_its_voices_until_that_voices_next_dynamic() -> None:
+def test_a_dynamic_covers_its_voice_until_that_voices_next_dynamic() -> None:
     document, upper, lower = _two_voices()
-    both: DynamicChange = DynamicChange.create(
+    first: DynamicChange = DynamicChange.create(
         start=anchor(document, _BEATS[0]),
-        voices=[document.voices[0], document.voices[1]],
+        voice=document.voices[0],
+        dynamic=DynamicMarking.MEZZO_FORTE,
+    )
+    second: DynamicChange = DynamicChange.create(
+        start=anchor(document, _BEATS[0]),
+        voice=document.voices[1],
         dynamic=DynamicMarking.MEZZO_FORTE,
     )
     # the first voice gets another dynamic at the third beat: for that voice the first one stops
     # there, for the second voice it goes on
     DynamicChange.create(
         start=anchor(document, _BEATS[2]),
-        voices=[document.voices[0]],
+        voice=document.voices[0],
         dynamic=DynamicMarking.FORTE,
     )
 
-    coverage: Coverage = _coverage(document=document, context=both)
-
-    assert {item.id for item in coverage.notes} == {
-        *(item.id for item in upper[:2]),
-        *(item.id for item in lower),
+    assert {item.id for item in _coverage(document=document, context=first).notes} == {
+        item.id for item in upper[:2]
     }
-
-
-@pytest.mark.unit
-def test_a_rest_is_a_covered_carrier_with_no_notes() -> None:
-    document, upper, _lower = _two_voices()
-    leaf: LeafRhythmicContainer = LeafRhythmicContainer.create(
-        parent=document.voices[0],
-        anchor=anchor(document, Fraction(1) + Fraction(1, 8)),
-        size=size(RhythmicValue.THIRTY_SECOND),
-    )
-    rest_carrier: RestCarrier = RestCarrier.create(owner=leaf)
-    Rest.create(rest_carrier=rest_carrier, staff=document.staffs[0])
-    pedal: SustainHold = SustainHold.create(
-        start=anchor(document, _BEATS[0]), end=anchor(document, _BEATS[3])
-    )
-
-    coverage: Coverage = _coverage(document=document, context=pedal)
-
-    assert rest_carrier.id in _carriers(coverage=coverage)
-    assert upper[0].note_carrier.id in _carriers(coverage=coverage)
-    assert all(item.note_carrier is not rest_carrier for item in coverage.notes)
+    assert {item.id for item in _coverage(document=document, context=second).notes} == {
+        item.id for item in lower
+    }
