@@ -7,7 +7,7 @@ from piano_app.domain.score.document.models.context import (
     OctaveTransposition,
     SpanContext,
 )
-from piano_app.domain.score.document.models.structural import MEASURE_START, Measure, Staff, Voice
+from piano_app.domain.score.document.models.structural import MEASURE_START, Measure, Staff
 from piano_app.domain.score.document.services.contexts import ContextIndex
 from piano_app.domain.score.document.services.geometry.score_geometry import ScoreGeometry
 from piano_app.domain.score.document.services.indexing import EntityIndex
@@ -25,6 +25,7 @@ from piano_app.domain.score.document.services.mutation.compiler.intents import (
 )
 from piano_app.domain.score.document.services.mutation.compiler.steps import (
     expect_entity,
+    expect_voices,
     in_mode,
     refuse_initial_context,
     resolve_entities,
@@ -82,7 +83,7 @@ class SetKeySignatureCompiler:
 
 
 class CreateSlurCompiler:
-    """Compiles a slur for some voices into one create request."""
+    """Compiles a slur for some voices into a create request for each voice."""
 
     def compile(
         self,
@@ -110,10 +111,10 @@ class CreateSlurCompiler:
                     expected=Measure,
                 ),
                 end_position=intent.end_position,
-                voices=tuple(
-                    expect_entity(entities_by_id=entities_by_id, entity_id=voice_id, expected=Voice)
-                    for voice_id in intent.voice_ids
-                ),
+                voice=voice,
+            )
+            for voice in expect_voices(
+                entities_by_id=entities_by_id, voice_ids=intent.voice_ids, mark="slur"
             )
         ]
 
@@ -331,7 +332,7 @@ class DeleteOctaveTranspositionCompiler:
 
 
 class MoveContextStartCompiler:
-    """Compiles moving where a context starts into one update request; a clef or an octave
+    """Compiles moving where contexts start into an update request for each; a clef or an octave
     line moves under a pitch-preserving request when its notes are to sound as before."""
 
     def compile(
@@ -343,36 +344,43 @@ class MoveContextStartCompiler:
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
             entities=entities,
-            entity_ids=(intent.context_id, intent.measure_id),
+            entity_ids=(*intent.context_ids, intent.measure_id),
         )
-        context: Context = expect_entity(
+        measure: Measure = expect_entity(
             entities_by_id=entities_by_id,
-            entity_id=intent.context_id,
-            expected=Context,
+            entity_id=intent.measure_id,
+            expected=Measure,
         )
-        refuse_initial_context(document=document, entity=context)
 
-        return in_mode(
-            document=document,
-            staff=context.staff if isinstance(context, ClefChange | OctaveTransposition) else None,
-            mode=intent.mode,
-            requests=[
-                UpdateContextStartRequest(
-                    target=context,
-                    measure=expect_entity(
-                        entities_by_id=entities_by_id,
-                        entity_id=intent.measure_id,
-                        expected=Measure,
-                    ),
-                    position=intent.position,
+        requests: list[MutationRequest] = []
+        for context_id in intent.context_ids:
+            context: Context = expect_entity(
+                entities_by_id=entities_by_id,
+                entity_id=context_id,
+                expected=Context,
+            )
+            refuse_initial_context(document=document, entity=context)
+            requests.extend(
+                in_mode(
+                    document=document,
+                    staff=context.staff
+                    if isinstance(context, ClefChange | OctaveTransposition)
+                    else None,
+                    mode=intent.mode,
+                    requests=[
+                        UpdateContextStartRequest(
+                            target=context, measure=measure, position=intent.position
+                        )
+                    ],
                 )
-            ],
-        )
+            )
+
+        return requests
 
 
 class MoveContextEndCompiler:
-    """Compiles moving where a span context ends into one update request; an octave line moves
-    under a pitch-preserving request when its notes are to sound as before."""
+    """Compiles moving where span contexts end into an update request for each; an octave line
+    moves under a pitch-preserving request when its notes are to sound as before."""
 
     def compile(
         self,
@@ -383,35 +391,40 @@ class MoveContextEndCompiler:
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
             entities=entities,
-            entity_ids=(intent.context_id, intent.measure_id),
+            entity_ids=(*intent.context_ids, intent.measure_id),
         )
-        context: SpanContext = expect_entity(
+        measure: Measure = expect_entity(
             entities_by_id=entities_by_id,
-            entity_id=intent.context_id,
-            expected=SpanContext,
+            entity_id=intent.measure_id,
+            expected=Measure,
         )
 
-        return in_mode(
-            document=document,
-            staff=context.staff if isinstance(context, OctaveTransposition) else None,
-            mode=intent.mode,
-            requests=[
-                UpdateContextEndRequest(
-                    target=context,
-                    measure=expect_entity(
-                        entities_by_id=entities_by_id,
-                        entity_id=intent.measure_id,
-                        expected=Measure,
-                    ),
-                    position=intent.position,
+        requests: list[MutationRequest] = []
+        for context_id in intent.context_ids:
+            context: SpanContext = expect_entity(
+                entities_by_id=entities_by_id,
+                entity_id=context_id,
+                expected=SpanContext,
+            )
+            requests.extend(
+                in_mode(
+                    document=document,
+                    staff=context.staff if isinstance(context, OctaveTransposition) else None,
+                    mode=intent.mode,
+                    requests=[
+                        UpdateContextEndRequest(
+                            target=context, measure=measure, position=intent.position
+                        )
+                    ],
                 )
-            ],
-        )
+            )
+
+        return requests
 
 
 class OpenContextEndCompiler:
-    """Compiles making a span context last until the end of the score into one update request;
-    an octave line moves under a pitch-preserving request when its notes are to sound as
+    """Compiles making span contexts last until the end of the score into an update request for
+    each; an octave line moves under a pitch-preserving request when its notes are to sound as
     before."""
 
     def compile(
@@ -423,17 +436,23 @@ class OpenContextEndCompiler:
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
             entities=entities,
-            entity_ids=(intent.context_id,),
-        )
-        context: SpanContext = expect_entity(
-            entities_by_id=entities_by_id,
-            entity_id=intent.context_id,
-            expected=SpanContext,
+            entity_ids=intent.context_ids,
         )
 
-        return in_mode(
-            document=document,
-            staff=context.staff if isinstance(context, OctaveTransposition) else None,
-            mode=intent.mode,
-            requests=[OpenContextEndRequest(target=context)],
-        )
+        requests: list[MutationRequest] = []
+        for context_id in intent.context_ids:
+            context: SpanContext = expect_entity(
+                entities_by_id=entities_by_id,
+                entity_id=context_id,
+                expected=SpanContext,
+            )
+            requests.extend(
+                in_mode(
+                    document=document,
+                    staff=context.staff if isinstance(context, OctaveTransposition) else None,
+                    mode=intent.mode,
+                    requests=[OpenContextEndRequest(target=context)],
+                )
+            )
+
+        return requests

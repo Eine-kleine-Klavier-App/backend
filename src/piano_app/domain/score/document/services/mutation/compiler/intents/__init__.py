@@ -1,5 +1,4 @@
 from .context import (
-    AddContextVoiceIntent,
     AddRefrainEndingIntent,
     AppendVoltaFragmentIntent,
     CreateHairpinIntent,
@@ -19,7 +18,6 @@ from .context import (
     MoveVoltaStartIntent,
     OpenContextEndIntent,
     PitchEditMode,
-    RemoveContextVoiceIntent,
     SetClefIntent,
     SetDynamicIntent,
     SetHairpinTargetIntent,
@@ -66,7 +64,6 @@ from .update import (
 )
 
 __all__ = (
-    "AddContextVoiceIntent",
     "AddGraceCarrierNoteIntent",
     "AddGraceNoteIntent",
     "AddRefrainEndingIntent",
@@ -104,7 +101,6 @@ __all__ = (
     "MoveVoltaStartIntent",
     "OpenContextEndIntent",
     "PitchEditMode",
-    "RemoveContextVoiceIntent",
     "RemoveGraceNoteIntent",
     "RemoveMeasureIntent",
     "SetAccidentalIntent",

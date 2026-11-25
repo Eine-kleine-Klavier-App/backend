@@ -23,7 +23,6 @@ from .refrain import (
     SetRefrainTimesIntent,
 )
 from .tempo import CreateTempoTransitionIntent, SetTempoIntent, SetTempoTransitionTargetIntent
-from .voices import AddContextVoiceIntent, RemoveContextVoiceIntent
 from .volta import (
     AddRefrainEndingIntent,
     AppendVoltaFragmentIntent,
@@ -37,7 +36,6 @@ from .volta import (
 )
 
 __all__ = (
-    "AddContextVoiceIntent",
     "AddRefrainEndingIntent",
     "AppendVoltaFragmentIntent",
     "CreateHairpinIntent",
@@ -57,7 +55,6 @@ __all__ = (
     "MoveVoltaStartIntent",
     "OpenContextEndIntent",
     "PitchEditMode",
-    "RemoveContextVoiceIntent",
     "SetClefIntent",
     "SetDynamicIntent",
     "SetHairpinTargetIntent",

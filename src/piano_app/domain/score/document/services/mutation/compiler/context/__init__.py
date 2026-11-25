@@ -26,7 +26,6 @@ from .tempo import (
     SetTempoCompiler,
     SetTempoTransitionTargetCompiler,
 )
-from .voices import AddContextVoiceCompiler, RemoveContextVoiceCompiler
 from .volta import (
     AddRefrainEndingCompiler,
     AppendVoltaFragmentCompiler,
@@ -39,7 +38,6 @@ from .volta import (
 )
 
 __all__ = (
-    "AddContextVoiceCompiler",
     "AddRefrainEndingCompiler",
     "AppendVoltaFragmentCompiler",
     "CreateHairpinCompiler",
@@ -58,7 +56,6 @@ __all__ = (
     "MoveVoltaBoundaryCompiler",
     "MoveVoltaStartCompiler",
     "OpenContextEndCompiler",
-    "RemoveContextVoiceCompiler",
     "SetClefCompiler",
     "SetDynamicCompiler",
     "SetHairpinTargetCompiler",

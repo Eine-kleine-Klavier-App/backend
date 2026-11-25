@@ -1,6 +1,5 @@
 from .compiler import MutationCompiler
 from .context import (
-    AddContextVoiceCompiler,
     AddRefrainEndingCompiler,
     AppendVoltaFragmentCompiler,
     CreateHairpinCompiler,
@@ -19,7 +18,6 @@ from .context import (
     MoveVoltaBoundaryCompiler,
     MoveVoltaStartCompiler,
     OpenContextEndCompiler,
-    RemoveContextVoiceCompiler,
     SetClefCompiler,
     SetDynamicCompiler,
     SetHairpinTargetCompiler,
@@ -49,7 +47,6 @@ from .create import (
 )
 from .delete import DeleteBatchCompiler, RemoveMeasureCompiler
 from .intents import (
-    AddContextVoiceIntent,
     AddGraceCarrierNoteIntent,
     AddGraceNoteIntent,
     AddRefrainEndingIntent,
@@ -85,7 +82,6 @@ from .intents import (
     MoveVoltaBoundaryIntent,
     MoveVoltaStartIntent,
     OpenContextEndIntent,
-    RemoveContextVoiceIntent,
     RemoveGraceNoteIntent,
     RemoveMeasureIntent,
     SetAccidentalIntent,
@@ -189,8 +185,6 @@ def _build_registry() -> IntentCompilerRegistry:
     registry.register(intent_type=SplitVoltaFragmentIntent, compiler=SplitVoltaFragmentCompiler())
     registry.register(intent_type=AddRefrainEndingIntent, compiler=AddRefrainEndingCompiler())
     registry.register(intent_type=SetDynamicIntent, compiler=SetDynamicCompiler())
-    registry.register(intent_type=AddContextVoiceIntent, compiler=AddContextVoiceCompiler())
-    registry.register(intent_type=RemoveContextVoiceIntent, compiler=RemoveContextVoiceCompiler())
     registry.register(intent_type=SetHairpinTargetIntent, compiler=SetHairpinTargetCompiler())
     registry.register(intent_type=SetKeySignatureIntent, compiler=SetKeySignatureCompiler())
     registry.register(intent_type=SetTempoIntent, compiler=SetTempoCompiler())

@@ -18,6 +18,7 @@ from piano_app.domain.score.document.services.mutation.compiler.intents import (
 )
 from piano_app.domain.score.document.services.mutation.compiler.steps import (
     expect_entity,
+    expect_voices,
     resolve_entities,
 )
 from piano_app.domain.score.document.services.mutation.instructions import (
@@ -31,13 +32,9 @@ from piano_app.domain.score.document.services.mutation.instructions.requests.con
 )
 
 
-def _steps_to(*, starts: Sequence[DynamicMarking], target: DynamicMarking) -> int:
-    """The number of dynamic levels from the one dynamic all the voices start at to the
-    target; the voices starting at different dynamics cannot share one target."""
-    if len(set(starts)) != 1:
-        raise MutationRejectedError("The voices of a hairpin must start at the same dynamic.")
-
-    steps: int = target.level - starts[0].level
+def _steps_to(*, start: DynamicMarking, target: DynamicMarking) -> int:
+    """The number of dynamic levels from the dynamic a voice starts at to the target."""
+    steps: int = target.level - start.level
     if steps == 0:
         raise MutationRejectedError("A hairpin must change the dynamic.")
 
@@ -45,7 +42,7 @@ def _steps_to(*, starts: Sequence[DynamicMarking], target: DynamicMarking) -> in
 
 
 class SetDynamicCompiler:
-    """Compiles a dynamic for some voices into one create request."""
+    """Compiles a dynamic for some voices into a create request for each voice."""
 
     def compile(
         self,
@@ -63,24 +60,23 @@ class SetDynamicCompiler:
             entity_id=intent.measure_id,
             expected=Measure,
         )
-        voices: tuple[Voice, ...] = tuple(
-            expect_entity(entities_by_id=entities_by_id, entity_id=voice_id, expected=Voice)
-            for voice_id in intent.voice_ids
-        )
 
         return [
             CreateDynamicChangeRequest(
                 measure=measure,
                 position=intent.position,
-                voices=voices,
+                voice=voice,
                 dynamic=intent.dynamic,
+            )
+            for voice in expect_voices(
+                entities_by_id=entities_by_id, voice_ids=intent.voice_ids, mark="dynamic"
             )
         ]
 
 
 class CreateHairpinCompiler:
-    """Compiles a hairpin to a target dynamic into one create request; the target is turned
-    into a number of levels from the dynamic in force at the start."""
+    """Compiles a hairpin to a target dynamic into a create request for each voice; the target
+    is turned into a number of levels from the dynamic its voice is at when the hairpin starts."""
 
     def compile(
         self,
@@ -103,9 +99,8 @@ class CreateHairpinCompiler:
             entity_id=intent.end_measure_id,
             expected=Measure,
         )
-        voices: tuple[Voice, ...] = tuple(
-            expect_entity(entities_by_id=entities_by_id, entity_id=voice_id, expected=Voice)
-            for voice_id in intent.voice_ids
+        voices: tuple[Voice, ...] = expect_voices(
+            entities_by_id=entities_by_id, voice_ids=intent.voice_ids, mark="hairpin"
         )
 
         geometry: ScoreGeometry = ScoreGeometry(document=document)
@@ -122,17 +117,17 @@ class CreateHairpinCompiler:
                 start_position=intent.start_position,
                 end_measure=end_measure,
                 end_position=intent.end_position,
-                voices=voices,
+                voice=voice,
                 steps=_steps_to(
-                    starts=[values.dynamic_at(voice=voice, at=start_at) for voice in voices],
-                    target=intent.target,
+                    start=values.dynamic_at(voice=voice, at=start_at), target=intent.target
                 ),
             )
+            for voice in voices
         ]
 
 
 class SetHairpinTargetCompiler:
-    """Compiles a new target of a hairpin into one update request."""
+    """Compiles a new target of hairpins into an update request for each."""
 
     def compile(
         self,
@@ -143,13 +138,12 @@ class SetHairpinTargetCompiler:
     ) -> Sequence[MutationRequest]:
         entities_by_id: dict[str, ScoreEntity] = resolve_entities(
             entities=entities,
-            entity_ids=(intent.hairpin_id,),
+            entity_ids=intent.hairpin_ids,
         )
-        hairpin: Hairpin = expect_entity(
-            entities_by_id=entities_by_id,
-            entity_id=intent.hairpin_id,
-            expected=Hairpin,
-        )
+        hairpins: list[Hairpin] = [
+            expect_entity(entities_by_id=entities_by_id, entity_id=hairpin_id, expected=Hairpin)
+            for hairpin_id in intent.hairpin_ids
+        ]
 
         geometry: ScoreGeometry = ScoreGeometry(document=document)
         values: ContextValues = ContextValues(
@@ -160,11 +154,9 @@ class SetHairpinTargetCompiler:
             UpdateHairpinStepsRequest(
                 target=hairpin,
                 steps=_steps_to(
-                    starts=[
-                        values.hairpin_start_dynamic(hairpin=hairpin, voice=voice)
-                        for voice in hairpin.voices
-                    ],
+                    start=values.hairpin_start_dynamic(hairpin=hairpin, voice=hairpin.voice),
                     target=intent.target,
                 ),
             )
+            for hairpin in hairpins
         ]
