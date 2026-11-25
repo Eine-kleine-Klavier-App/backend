@@ -57,7 +57,7 @@ async def _service_with_a_slur():
 
 def _move_end(*, document, slur) -> MoveContextEndIntent:
     return MoveContextEndIntent(
-        context_id=slur.id,
+        context_ids=(slur.id,),
         measure_id=document.measures[2].id,
         position=_BEAT_TWO,
         mode=PitchEditMode.PRESERVE_STEP,

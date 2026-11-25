@@ -32,8 +32,8 @@ from piano_app.domain.score.document.models.structural import TemporalAnchor
 
 from ...domain.scene import Score, anchor_at, build_two_voices, quarters
 
-# One tempo, a clef and a key signature for the staff, and one dynamic shared by both voices.
-_START_CONTEXTS: int = 4
+# One tempo, a clef and a key signature for the staff, and one dynamic for each of the two voices.
+_START_CONTEXTS: int = 5
 
 # Contexts are stored in one table, and each anchor lists the ids of the ones that start at it,
 # in order. Re-serialising
@@ -139,10 +139,10 @@ def _key_signature(first: Score, second: Score) -> Context:
     )
 
 
-def _dynamic_on_both_voices(first: Score, second: Score) -> Context:
+def _dynamic_on_second_voice(first: Score, second: Score) -> Context:
     return DynamicChange.create(
         start=anchor_at(score=first, at=Fraction(1, 2)),
-        voices=[second.voice, first.voice],
+        voice=second.voice,
         dynamic=DynamicMarking.MEZZO_PIANO,
     )
 
@@ -167,7 +167,7 @@ def _hairpin_across_measures(first: Score, second: Score) -> Context:
     return Hairpin.create(
         start=anchor_at(score=first, at=Fraction(1, 2)),
         end=anchor_at(score=first, at=Fraction(5, 4)),
-        voices=[first.voice, second.voice],
+        voice=second.voice,
         steps=-2,
     )
 
@@ -176,7 +176,7 @@ def _slur_on_one_voice(first: Score, second: Score) -> Context:
     return Slur.create(
         start=anchor_at(score=first, at=Fraction(0)),
         end=anchor_at(score=first, at=Fraction(3, 4)),
-        voices=[first.voice],
+        voice=first.voice,
     )
 
 
@@ -189,7 +189,7 @@ def _slur_on_one_voice(first: Score, second: Score) -> Context:
         _tempo_transition,
         _clef_with_octave_transposition,
         _key_signature,
-        _dynamic_on_both_voices,
+        _dynamic_on_second_voice,
         _sustain_across_measures,
         _octave_transposition_across_measures,
         _hairpin_across_measures,
@@ -231,7 +231,7 @@ def test_several_contexts_on_one_anchor_keep_every_index_order() -> None:
     start: TemporalAnchor = anchor_at(score=first, at=Fraction(1))
     end: TemporalAnchor = anchor_at(score=first, at=Fraction(3, 2))
     earlier_end: TemporalAnchor = anchor_at(score=first, at=Fraction(1, 2))
-    Slur.create(start=anchor_at(score=first, at=Fraction(0)), end=end, voices=[first.voice])
+    Slur.create(start=anchor_at(score=first, at=Fraction(0)), end=end, voice=first.voice)
     ClefChange.create(start=start, staff=first.staff, clef=Clef.TREBLE)
     KeySignatureChange.create(
         start=start,
@@ -239,15 +239,14 @@ def test_several_contexts_on_one_anchor_keep_every_index_order() -> None:
         alterations=(*(Accidental.NATURAL,) * 4, Accidental.SHARP, *(Accidental.NATURAL,) * 2),
     )
     TempoChange.create(start=start, beat=_QUARTER, bpm=72)
-    DynamicChange.create(
-        start=start, voices=[first.voice, second.voice], dynamic=DynamicMarking.FORTE
-    )
-    Hairpin.create(start=start, end=end, voices=[first.voice], steps=2)
+    DynamicChange.create(start=start, voice=first.voice, dynamic=DynamicMarking.FORTE)
+    DynamicChange.create(start=start, voice=second.voice, dynamic=DynamicMarking.FORTE)
+    Hairpin.create(start=start, end=end, voice=first.voice, steps=2)
     OctaveTransposition.create(start=start, end=end, staff=first.staff, octaves=1)
     Hairpin.create(
         start=anchor_at(score=first, at=Fraction(0)),
         end=earlier_end,
-        voices=[second.voice],
+        voice=second.voice,
         steps=-1,
     )
 
@@ -274,7 +273,7 @@ def test_a_document_with_contexts_re_serialises_byte_for_byte_twice() -> None:
         _sustain_across_measures,
         _octave_transposition_across_measures,
         _hairpin_across_measures,
-        _dynamic_on_both_voices,
+        _dynamic_on_second_voice,
     ):
         make_context(first, second)
 

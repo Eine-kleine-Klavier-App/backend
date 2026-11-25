@@ -33,7 +33,7 @@ def test_an_edge_move_carries_its_presentation_changes_into_the_same_request():
 
     request = MoveContextEndRequest.model_validate(
         {
-            "context_id": "s",
+            "context_ids": ["s"],
             "measure_id": "m",
             "position": {"numerator": 1, "denominator": 4},
             "mode": "preserve_step",
@@ -54,7 +54,7 @@ def test_an_edge_move_carries_its_presentation_changes_into_the_same_request():
     assert (
         MoveContextEndRequest.model_validate(
             {
-                "context_id": "s",
+                "context_ids": ["s"],
                 "measure_id": "m",
                 "position": {"numerator": 1, "denominator": 4},
                 "mode": "preserve_step",

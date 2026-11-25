@@ -570,19 +570,16 @@ def test_different_dynamics_on_the_two_staffs_stay_and_the_same_one_is_the_piece
 
     voices: dict[str, int] = {voice.id: index for index, voice in enumerate(document.voices)}
     # the voices of the two staffs are the first two; the others hold the engine's own start level
-    found: list[tuple[tuple[int, Fraction] | None, str, list[int]]] = [
-        (
-            _at(document, dynamic.start),
-            dynamic.dynamic.value,
-            sorted(voices[v.id] for v in dynamic.voices),
-        )
+    found: list[tuple[tuple[int, Fraction] | None, str, int]] = [
+        (_at(document, dynamic.start), dynamic.dynamic.value, voices[dynamic.voice.id])
         for dynamic in _contexts(document, DynamicChange)
-        if {0, 1} & {voices[v.id] for v in dynamic.voices}
+        if voices[dynamic.voice.id] in {0, 1}
     ]
     assert sorted(found, key=str) == [
-        ((0, Fraction(0)), "mf", [0]),
-        ((0, Fraction(0)), "p", [1]),
-        ((1, Fraction(0)), "f", [0, 1, 2, 3]),
+        ((0, Fraction(0)), "mf", 0),
+        ((0, Fraction(0)), "p", 1),
+        ((1, Fraction(0)), "f", 0),
+        ((1, Fraction(0)), "f", 1),
     ]
 
 
@@ -603,10 +600,10 @@ def test_a_voice_that_crosses_the_staffs_takes_the_dynamic_of_the_staff_it_plays
 
     voices: dict[str, int] = {voice.id: index for index, voice in enumerate(document.voices)}
     assert sorted(
-        (dynamic.dynamic.value, sorted(voices[v.id] for v in dynamic.voices))
+        (dynamic.dynamic.value, voices[dynamic.voice.id])
         for dynamic in _contexts(document, DynamicChange)
-        if {0, 1, 2} & {voices[v.id] for v in dynamic.voices}
-    ) == [("mf", [0, 1]), ("p", [2])]
+        if voices[dynamic.voice.id] in {0, 1, 2}
+    ) == [("mf", 0), ("mf", 1), ("p", 2)]
 
 
 def test_dynamics_and_a_hairpin_to_the_next_dynamic_are_imported() -> None:
@@ -629,18 +626,19 @@ def test_dynamics_and_a_hairpin_to_the_next_dynamic_are_imported() -> None:
     )
 
     document: ScoreDocument = built.document
-    assert [(_at(document, d.start), d.dynamic) for d in _contexts(document, DynamicChange)][
-        -2:
+    assert [
+        (_at(document, d.start), d.dynamic)
+        for d in _contexts(document, DynamicChange)
+        if d.voice is document.voices[0]
     ] == [
         ((0, Fraction(0)), DynamicMarking.MEZZO_FORTE),
         ((1, Fraction(0)), DynamicMarking.FORTISSIMO),
     ]
-    (hairpin,) = _contexts(document, Hairpin)
-    assert (_at(document, hairpin.start), _at(document, hairpin.end), hairpin.steps) == (
-        (0, Fraction(0)),
-        (0, Fraction(1, 2)),
-        2,
-    )
+    # one hairpin for each voice, each from the same place to the same place
+    assert [
+        (_at(document, hairpin.start), _at(document, hairpin.end), hairpin.steps)
+        for hairpin in _contexts(document, Hairpin)
+    ] == [((0, Fraction(0)), (0, Fraction(1, 2)), 2)] * len(document.voices)
     assert built.issues == ()
 
 
@@ -922,9 +920,10 @@ def test_a_mark_the_engine_refuses_is_left_out_and_the_rest_stays() -> None:
     )
 
     document: ScoreDocument = built.document
+    # one hairpin for each voice
     assert [(h.steps, _at(document, h.start)) for h in _contexts(document, Hairpin)] == [
         (1, (1, Fraction(0)))
-    ]
+    ] * len(document.voices)
     assert [(i.measure, i.message) for i in _issues(built, IssueKind.SKIPPED)] == [
         ("1", "A hairpin is not imported: A hairpin must end after it starts.")
     ]

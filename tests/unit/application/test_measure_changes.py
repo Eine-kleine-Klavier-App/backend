@@ -96,7 +96,7 @@ def _tie_over_the_barline(score: Score) -> None:
 def _dynamic(score: Score) -> None:
     DynamicChange.create(
         start=anchor_at(score=score, at=Fraction(1)),
-        voices=[score.voice],
+        voice=score.voice,
         dynamic=DynamicMarking.FORTE,
     )
 
@@ -105,7 +105,7 @@ def _hairpin(score: Score) -> None:
     Hairpin.create(
         start=anchor_at(score=score, at=Fraction(1, 4)),
         end=anchor_at(score=score, at=Fraction(5, 4)),
-        voices=[score.voice],
+        voice=score.voice,
         steps=2,
     )
 
